@@ -120,3 +120,7 @@ button circle[r="1"] { fill: currentColor; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) { * { transition-duration: 0s !important; animation: none !important; } }
+
+.notch { cursor: grab; }
+.notch.dragging { cursor: grabbing; user-select: none; }
+.notch button { cursor: default; }

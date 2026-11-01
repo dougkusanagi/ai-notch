@@ -161,6 +161,31 @@ function close() {
 notchEl.addEventListener('mouseenter', open);
 notchEl.addEventListener('mouseleave', close);
 
+// Arrastar na horizontal move o notch; duplo clique volta ao centro.
+// Botões do painel não iniciam o arrasto.
+let dragX = null, dragged = false;
+notchEl.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || e.target.closest('button')) return;
+  dragX = e.screenX; dragged = false;
+  notchEl.setPointerCapture(e.pointerId);
+});
+notchEl.addEventListener('pointermove', e => {
+  if (dragX === null) return;
+  const dx = e.screenX - dragX;
+  if (!dragged && Math.abs(dx) < 3) return;
+  dragged = true; dragX = e.screenX;
+  notchEl.classList.add('dragging');
+  api.drag(dx);
+});
+const endDrag = () => {
+  if (dragX === null) return;
+  dragX = null; notchEl.classList.remove('dragging');
+  if (dragged) api.dragEnd();
+};
+notchEl.addEventListener('pointerup', endDrag);
+notchEl.addEventListener('pointercancel', endDrag);
+notchEl.addEventListener('dblclick', e => { if (!e.target.closest('button')) api.center(); });
+
 api.onUsage(d => { data = d; render(); });
 api.onLoading(on => {
   $('#pulse').classList.toggle('busy', on);

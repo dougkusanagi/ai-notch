@@ -7,5 +7,8 @@ contextBridge.exposeInMainWorld('notch', {
   refresh: () => ipcRenderer.send('refresh'),
   menu: () => ipcRenderer.send('menu'),
   setTheme: t => ipcRenderer.send('theme', t),
+  drag: dx => ipcRenderer.send('drag', dx),
+  dragEnd: () => ipcRenderer.send('drag-end'),
+  center: () => ipcRenderer.send('center'),
   prefs: () => ipcRenderer.invoke('prefs'),
 });
