@@ -4,6 +4,8 @@ Indicador pequeno no topo central da tela, no estilo do notch do MacBook. Fechad
 
 Com mais de uma conta do mesmo serviço, o notch fechado mostra um anel por conta com as iniciais do perfil no centro, sem o percentual, e o painel agrupa as contas por serviço. Com uma conta só, as iniciais não aparecem e o percentual fica ao lado do anel.
 
+Pelo menu (⋯, botão direito no notch ou na bandeja), **Monitores e posição…** abre uma janela onde cada monitor tem sua caixa "Mostrar o notch aqui" (sem nenhuma marcada o notch fica oculto; clicar no ícone da bandeja o traz de volta) e sua própria borda: topo, base, esquerda ou direita. Base e laterais ficam acima da barra de tarefas. Arraste o notch ao longo da borda para tirá-lo de cima de outra informação; o limite considera o painel aberto, para não vazar para outro monitor. Duplo clique ou **Centralizar no monitor** volta ao centro. **Fixar posição** bloqueia o arrasto.
+
 Fora do notch, a janela é transparente e deixa os cliques passarem.
 
 ## Dados

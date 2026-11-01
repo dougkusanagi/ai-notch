@@ -1,0 +1,35 @@
+:root { --bg: #1c1c1e; --card: #2c2c2e; --fg: #f5f5f7; --muted: #98989d; --line: rgba(255,255,255,.12); --accent: #0a84ff; --screen: #0e0e10; color-scheme: dark; }
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f5f5f7; --card: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: rgba(0,0,0,.12); --screen: #e4e4e8; color-scheme: light; }
+}
+* { box-sizing: border-box; margin: 0; }
+body { font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+main { padding: 20px 22px; display: grid; gap: 14px; }
+h1 { font-size: 17px; font-weight: 600; }
+.hint { color: var(--muted); }
+.monitors { display: flex; flex-wrap: wrap; gap: 12px; }
+.card { flex: 1 1 250px; max-width: 320px; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px; display: grid; gap: 10px; }
+.card.off { opacity: .75; }
+.card h2 { font-size: 13px; font-weight: 600; }
+.card h2 small { font-weight: 400; color: var(--muted); }
+.show { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+/* Miniatura do monitor com o notch na borda escolhida */
+.preview { position: relative; height: 84px; border-radius: 6px; background: var(--screen); border: 1px solid var(--line); }
+.preview i { position: absolute; background: var(--fg); opacity: .85; border-radius: 3px; transition: all .2s; }
+.preview.off i { display: none; }
+.preview i.top { top: 0; left: 50%; width: 34%; height: 8px; transform: translateX(-50%); border-radius: 0 0 6px 6px; }
+.preview i.bottom { bottom: 0; left: 50%; width: 34%; height: 8px; transform: translateX(-50%); border-radius: 6px 6px 0 0; }
+.preview i.left { left: 0; top: 50%; height: 34%; width: 8px; transform: translateY(-50%); border-radius: 0 6px 6px 0; }
+.preview i.right { right: 0; top: 50%; height: 34%; width: 8px; transform: translateY(-50%); border-radius: 6px 0 0 6px; }
+.edges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+button { font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 4px; cursor: pointer; }
+button:hover:not(:disabled) { background: var(--line); }
+button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.center { justify-self: start; }
+.lock { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

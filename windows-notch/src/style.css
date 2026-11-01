@@ -121,6 +121,44 @@ button circle[r="1"] { fill: currentColor; }
 
 @media (prefers-reduced-motion: reduce) { * { transition-duration: 0s !important; animation: none !important; } }
 
-.notch { cursor: grab; }
+body:not([data-locked="true"]) .notch { cursor: grab; }
 .notch.dragging { cursor: grabbing; user-select: none; }
 .notch button { cursor: default; }
+
+/* ---- Posição: topo (padrão), base, esquerda e direita ---- */
+/* Base: espelho vertical do topo; o painel cresce para cima. */
+body[data-edge="bottom"] { align-items: flex-end; }
+body[data-edge="bottom"] .notch { border-radius: 14px 14px 0 0; }
+body[data-edge="bottom"] .notch.open { border-radius: 22px 22px 0 0; box-shadow: 0 -14px 40px rgba(0, 0, 0, .35); }
+body[data-edge="bottom"] .ear { top: auto; bottom: 0; transform: scaleY(-1); }
+body[data-edge="bottom"] .compact { top: auto; bottom: 0; padding: 2px 14px 0; }
+body[data-edge="bottom"] .panel { top: auto; bottom: 0; transform: translate(-50%, 6px); padding: 10px 18px 14px; }
+body[data-edge="bottom"] .open .panel { transform: translate(-50%, 0); }
+
+/* Laterais: o notch fechado é uma pílula vertical e o painel cresce para dentro da tela. */
+body[data-edge="left"], body[data-edge="right"] { align-items: center; }
+body[data-edge="left"] { justify-content: flex-start; }
+body[data-edge="right"] { justify-content: flex-end; }
+body[data-edge="left"] .notch { border-radius: 0 14px 14px 0; }
+body[data-edge="left"] .notch.open { border-radius: 0 22px 22px 0; box-shadow: 14px 0 40px rgba(0, 0, 0, .35); }
+body[data-edge="right"] .notch { border-radius: 14px 0 0 14px; }
+body[data-edge="right"] .notch.open { border-radius: 22px 0 0 22px; box-shadow: -14px 0 40px rgba(0, 0, 0, .35); }
+/* Cantos côncavos: o desenho do topo transposto (x↔y) acima e abaixo do notch. */
+body[data-edge="left"] .ear, body[data-edge="right"] .ear { left: 0; right: auto; transform: matrix(0, 1, 1, 0, 0, 0); }
+body[data-edge="left"] .ear.left, body[data-edge="right"] .ear.left { top: -10px; }
+body[data-edge="left"] .ear.right, body[data-edge="right"] .ear.right { top: auto; bottom: -10px; }
+body[data-edge="right"] .ear { left: auto; right: 0; transform: scaleX(-1) matrix(0, 1, 1, 0, 0, 0); }
+body[data-edge="left"] .compact, body[data-edge="right"] .compact {
+  top: 50%; left: 0; width: 30px; height: max-content; transform: translateY(-50%);
+  flex-direction: column; gap: 12px; padding: 8px 0;
+}
+body[data-edge="left"] .group, body[data-edge="right"] .group { flex-direction: column; gap: 6px; }
+body[data-edge="left"] .items, body[data-edge="right"] .items { flex-direction: column; gap: 8px; }
+body[data-edge="left"] .chip, body[data-edge="right"] .chip,
+body[data-edge="left"] .group[data-p="codex"] .chip, body[data-edge="right"] .group[data-p="codex"] .chip { flex-direction: column; gap: 2px; }
+body[data-edge="left"] .chip b, body[data-edge="right"] .chip b { min-width: 0; font-size: 9px; text-align: center; }
+body[data-edge="left"] .panel, body[data-edge="right"] .panel { top: 50%; transform: translate(-6px, -50%); }
+body[data-edge="left"] .panel { left: 0; }
+body[data-edge="right"] .panel { left: auto; right: 0; transform: translate(6px, -50%); }
+body[data-edge="left"] .open .panel { transform: translate(0, -50%); }
+body[data-edge="right"] .open .panel { transform: translate(0, -50%); }

@@ -139,12 +139,24 @@ function render() {
 }
 
 // O notch acompanha o tamanho do conteúdo, fechado ou aberto.
+// Nas laterais o notch fechado é uma pílula vertical de 30px de largura.
+let edge = 'top';
+const sideways = () => edge === 'left' || edge === 'right';
 function fit() {
   const open = notchEl.classList.contains('open');
-  notchEl.style.width = `${open ? $('#panel').offsetWidth : $('#compact').offsetWidth}px`;
-  notchEl.style.height = `${open ? $('#panel').offsetHeight : 30}px`;
+  const panel = $('#panel'), compact = $('#compact');
+  notchEl.style.width = `${open ? panel.offsetWidth : sideways() ? 30 : compact.offsetWidth}px`;
+  notchEl.style.height = `${open ? panel.offsetHeight : sideways() ? compact.offsetHeight : 30}px`;
+}
+function applyPrefs(p) {
+  edge = p.edge || 'top';
+  document.body.dataset.edge = edge;
+  document.body.dataset.locked = String(!!p.locked);
+  fit();
 }
 
+// Com o menu nativo aberto o notch fica expandido, mesmo com o mouse sobre o menu.
+let pinned = false, hovering = false;
 function open() {
   clearTimeout(closeTimer);
   api.interactive(true);
@@ -153,27 +165,30 @@ function open() {
 }
 function close() {
   closeTimer = setTimeout(() => {
+    if (pinned) return;
     notchEl.classList.remove('open');
     fit();
     api.interactive(false);
   }, 220);
 }
-notchEl.addEventListener('mouseenter', open);
-notchEl.addEventListener('mouseleave', close);
+notchEl.addEventListener('mouseenter', () => { hovering = true; open(); });
+notchEl.addEventListener('mouseleave', () => { hovering = false; close(); });
+api.onPin(on => { pinned = on; if (on) open(); else if (!hovering) close(); });
 
-// Arrastar na horizontal move o notch; duplo clique volta ao centro.
+// Arrastar ao longo da borda (horizontal no topo/base, vertical nas laterais) move o notch; duplo clique volta ao centro.
 // Botões do painel não iniciam o arrasto.
 let dragX = null, dragged = false;
+const pos = e => sideways() ? e.screenY : e.screenX; // eixo do arrasto depende da borda
 notchEl.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || e.target.closest('button')) return;
-  dragX = e.screenX; dragged = false;
+  if (e.button !== 0 || e.target.closest('button') || document.body.dataset.locked === 'true') return;
+  dragX = pos(e); dragged = false;
   notchEl.setPointerCapture(e.pointerId);
 });
 notchEl.addEventListener('pointermove', e => {
   if (dragX === null) return;
-  const dx = e.screenX - dragX;
+  const dx = pos(e) - dragX;
   if (!dragged && Math.abs(dx) < 3) return;
-  dragged = true; dragX = e.screenX;
+  dragged = true; dragX = pos(e);
   notchEl.classList.add('dragging');
   api.drag(dx);
 });
@@ -184,7 +199,9 @@ const endDrag = () => {
 };
 notchEl.addEventListener('pointerup', endDrag);
 notchEl.addEventListener('pointercancel', endDrag);
-notchEl.addEventListener('dblclick', e => { if (!e.target.closest('button')) api.center(); });
+notchEl.addEventListener('dblclick', e => {
+  if (!e.target.closest('button') && document.body.dataset.locked !== 'true') api.center();
+});
 
 api.onUsage(d => { data = d; render(); });
 api.onLoading(on => {
@@ -200,7 +217,10 @@ function setThemeUI(t) {
 for (const b of document.querySelectorAll('.theme button')) {
   b.addEventListener('click', () => { setThemeUI(b.dataset.t); api.setTheme(b.dataset.t); });
 }
-api.prefs().then(p => setThemeUI(p.theme));
+api.prefs().then(p => { setThemeUI(p.theme); applyPrefs(p); });
+api.onPrefs(applyPrefs);
+// Botão direito abre o mesmo menu da bandeja.
+notchEl.addEventListener('contextmenu', e => { e.preventDefault(); api.menu(); });
 fit();
 
 setInterval(render, 30e3); // mantém os horários atuais
