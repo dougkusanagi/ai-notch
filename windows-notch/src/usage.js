@@ -112,15 +112,32 @@ async function discoverProfiles(home = os.homedir(), config = {}) {
     }
     for (const c of config.custom ?? []) if (c.provider === provider) dirs.add(path.resolve(c.dir));
     const custom = new Set((config.custom ?? []).filter(c => c.provider === provider).map(c => path.resolve(c.dir)));
+    const removed = new Set(config.removed ?? []);
     for (const dir of dirs) {
+      if (removed.has(dir)) continue;
+      const loggedIn = await fs.access(path.join(dir, cfg.file)).then(() => true, () => false);
       const auto = profileName(path.basename(dir), cfg.prefix);
       const o = config.overrides?.[dir] ?? {};
       const name = o.name || (custom.has(dir) && !path.basename(dir).startsWith(cfg.prefix) ? path.basename(dir) : auto.name);
       const initials = o.initials || (o.name ? initialsOf(o.name) : (name === auto.name ? auto.initials : initialsOf(name)));
-      out.push({ provider, dir, name, initials, hidden: o.hidden === true, custom: custom.has(dir) });
+      out.push({ provider, dir, name, initials, hidden: o.hidden === true, custom: custom.has(dir), loggedIn });
     }
   }
-  return out;
+  // Ordem escolhida pelo usuário; contas novas vão para o fim, na ordem da descoberta.
+  const order = config.order ?? [];
+  const rank = d => { const i = order.indexOf(d); return i < 0 ? order.length : i; };
+  return out.map((p, i) => [p, i]).sort((a, b) => rank(a[0].dir) - rank(b[0].dir) || a[1] - b[1]).map(([p]) => p);
+}
+
+// Comando que entra na conta usando a pasta do perfil, no shell da plataforma.
+function loginCommand(provider, dir, platform = process.platform, home = os.homedir()) {
+  const env = PROVIDERS[provider]?.env;
+  if (!env) return '';
+  const cmd = provider === 'codex' ? 'codex login' : 'claude';
+  if (platform === 'win32') return `$env:${env}='${dir.replaceAll("'", "''")}'; ${cmd}`;
+  const quote = v => `'${v.replaceAll("'", "'\\''")}'`;
+  const value = dir === home ? '"$HOME"' : dir.startsWith(home + '/') ? `"$HOME"/${quote(dir.slice(home.length + 1))}` : quote(dir);
+  return `${env}=${value} ${cmd}`;
 }
 
 function initialsOf(name) {
@@ -168,4 +185,4 @@ async function fetchAll(home, previous = [], config = {}) {
   }));
 }
 
-module.exports = { keepStale, backoffMs, normalizeClaude, normalizeOpenAI, resetMs, profileName, initialsOf, discoverProfiles, fetchAll, demo };
+module.exports = { keepStale, backoffMs, normalizeClaude, normalizeOpenAI, resetMs, profileName, initialsOf, loginCommand, discoverProfiles, fetchAll, demo };

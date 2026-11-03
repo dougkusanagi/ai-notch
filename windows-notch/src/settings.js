@@ -71,7 +71,15 @@ function showError(msg) { addError.hidden = !msg; addError.textContent = msg ?? 
 // Mostra ~ no lugar da pasta do usuário, para o caminho caber na linha.
 const shortDir = dir => dir.replace(/^(\/home\/[^/]+|\/Users\/[^/]+|[A-Z]:\\Users\\[^\\]+)/, '~');
 
-function renderAccounts(accounts) {
+const restoreEl = document.getElementById('restore');
+function renderAccounts({ accounts, removed }) {
+  restoreEl.hidden = !removed;
+  if (removed) {
+    const b = el('button', null, 'Restaurar');
+    b.type = 'button';
+    b.addEventListener('click', () => save({ restore: true }, 'Contas restauradas.'));
+    restoreEl.replaceChildren(document.createTextNode(`${removed} ${removed > 1 ? 'contas encontradas foram removidas' : 'conta encontrada foi removida'} da lista. `), b);
+  }
   if (accBox.contains(document.activeElement) && document.activeElement.type === 'text') return;
   if (!accounts.length) return accBox.replaceChildren(el('p', 'empty', 'Nenhuma conta encontrada. Entre no Claude Code ou no Codex CLI, ou adicione uma pasta abaixo.'));
   const groups = [];
@@ -83,7 +91,7 @@ function renderAccounts(accounts) {
     const h = el('header');
     h.append(el('i'), document.createTextNode(`${info.name} · ${list.length} ${list.length > 1 ? 'contas' : 'conta'}`));
     const box = el('div', 'list');
-    box.append(...list.map(accountRow));
+    box.append(...list.map((a, i) => accountRow(a, i, list.length)));
     g.append(h, box);
     groups.push(g);
   }
@@ -92,7 +100,7 @@ function renderAccounts(accounts) {
 
 async function save(a, msg) {
   const r = await window.settings.setAccount(a);
-  renderAccounts(r.accounts);
+  renderAccounts(r);
   if (r.error) flash(r.error); else flash(msg);
   return r;
 }
@@ -107,7 +115,7 @@ function input(cls, value, label, max) {
   return i;
 }
 
-function accountRow(a) {
+function accountRow(a, index, total) {
   const row = el('div', a.hidden ? 'acc off' : 'acc');
   const badge = el('span', 'badge', a.initials);
   badge.setAttribute('aria-hidden', 'true');
@@ -134,23 +142,52 @@ function accountRow(a) {
   cb.addEventListener('change', () => save({ dir: a.dir, hidden: !cb.checked }, cb.checked ? `${a.name} voltou ao notch.` : `${a.name} foi ocultada.`));
   sw.append(cb, el('span'));
   actions.append(sw);
-  if (a.custom) {
-    const rm = el('button', 'remove');
-    rm.type = 'button'; rm.title = 'Remover conta';
-    rm.setAttribute('aria-label', `Remover a conta ${a.name}`);
-    rm.innerHTML = '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>';
-    rm.addEventListener('click', () => {
-      if (confirm(`Remover "${a.name}"? A pasta não é apagada, só sai da lista.`)) save({ dir: a.dir, remove: true }, 'Conta removida.');
-    });
-    actions.append(rm);
-  }
 
+  const meta = el('div', 'meta');
+  if (!a.loggedIn) meta.append(el('span', 'warn', 'Sem login'));
   const dir = el('div', 'dir');
   dir.title = a.dir;
   if (a.custom) dir.append(el('em', null, 'Adicionada'));
   dir.append(document.createTextNode(shortDir(a.dir)));
-  row.append(badge, fields, actions, dir);
+
+  const tools = el('div', 'tools');
+  const copy = tool(ICONS.copy, 'Copiar login', `Copiar o comando de login de ${a.name}`, () => {
+    window.settings.copy(a.login);
+    flash(`Comando copiado. Cole no terminal para entrar em ${a.name}.`);
+  });
+  copy.classList.add('copy');
+  if (!a.loggedIn) copy.classList.add('need');
+  copy.title = a.login;
+  const up = tool(ICONS.up, null, `Mover ${a.name} para cima`, () => save({ dir: a.dir, move: -1 }, 'Ordem salva.'));
+  const down = tool(ICONS.down, null, `Mover ${a.name} para baixo`, () => save({ dir: a.dir, move: 1 }, 'Ordem salva.'));
+  up.disabled = index === 0; down.disabled = index === total - 1;
+  const rm = tool(ICONS.trash, null, `Remover a conta ${a.name}`, () => {
+    const extra = a.custom ? '' : ' Ela foi encontrada sozinha; você pode trazê-la de volta em "Restaurar".';
+    if (confirm(`Remover "${a.name}" da lista? A pasta e o login não são apagados.${extra}`)) save({ dir: a.dir, remove: true }, 'Conta removida.');
+  });
+  rm.classList.add('danger');
+  tools.append(copy, up, down, rm);
+  meta.append(dir, tools);
+
+  row.append(badge, fields, actions, meta);
   return row;
+}
+
+const ICONS = {
+  copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/>',
+  up: '<path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7"/>',
+  down: '<path d="M8 3.5v9M4.5 9 8 12.5 11.5 9"/>',
+  trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
+};
+function tool(icon, text, label, onClick) {
+  const b = el('button');
+  b.type = 'button';
+  b.setAttribute('aria-label', label);
+  b.title = label;
+  b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icon}</svg>`;
+  if (text) b.append(el('span', 'label', text));
+  b.addEventListener('click', onClick);
+  return b;
 }
 
 document.getElementById('browse').addEventListener('click', async () => {
@@ -164,9 +201,9 @@ addForm.addEventListener('submit', async e => {
   btn.disabled = true;
   const provider = addForm.querySelector('input[name=provider]:checked').value;
   const r = await window.settings.setAccount({ add: true, provider, dir: dirInput.value.trim() }).finally(() => { btn.disabled = false; });
-  renderAccounts(r.accounts);
+  renderAccounts(r);
   showError(r.error);
-  if (!r.error) { dirInput.value = ''; flash('Conta adicionada. Atualizando os limites…'); }
+  if (!r.error) { dirInput.value = ''; flash('Conta adicionada. Se ela ainda não tem login, use "Copiar login".'); }
 });
 const loadAccounts = () => window.settings.accounts().then(renderAccounts);
 window.addEventListener('focus', loadAccounts);

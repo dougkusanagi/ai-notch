@@ -42,17 +42,28 @@ input[type=text]:focus { border-color: var(--accent); outline: none; }
 .provider > header { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .provider > header i { width: 8px; height: 8px; border-radius: 50%; background: var(--p); }
 .list { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.acc { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 12px; }
+.acc { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 10px 12px; }
 .acc + .acc { border-top: 1px solid var(--line); }
 .acc.off .badge, .acc.off .fields { opacity: .5; }
 .badge { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-weight: 700; font-size: 12px;
-  color: #fff; background: var(--p); grid-row: span 2; }
+  color: #fff; background: var(--p); }
 .fields { display: flex; gap: 6px; min-width: 0; }
 .fields .name { flex: 1 1 auto; }
 .fields .ini { width: 58px; text-transform: uppercase; text-align: center; }
-.dir { grid-column: 2; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { grid-column: 2 / 4; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dir { flex: 1 1 auto; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tools { display: flex; gap: 2px; flex: none; }
+.tools button { height: 26px; min-width: 26px; padding: 0 6px; display: inline-flex; align-items: center; gap: 5px; border-color: transparent;
+  color: var(--muted); font-size: 12px; }
+.tools button:hover:not(:disabled) { color: var(--fg); }
+.tools button.danger:hover { color: #ff453a; }
+.tools button.copy.need { color: var(--accent); border-color: var(--accent); }
+.tools svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.warn { flex: none; font-size: 11px; padding: 1px 6px; border-radius: 5px; color: #ff9f0a; border: 1px solid currentColor; }
+.restore { color: var(--muted); font-size: 12px; }
+.restore button { border: 0; padding: 0; color: var(--accent); text-decoration: underline; }
 .dir em { font-style: normal; color: var(--accent); margin-right: 6px; }
-.actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; grid-row: span 2; min-width: 76px; }
+.actions { display: flex; align-items: center; justify-content: flex-end; }
 /* Interruptor */
 .switch { position: relative; display: inline-flex; cursor: pointer; }
 .switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
@@ -62,9 +73,6 @@ input[type=text]:focus { border-color: var(--accent); outline: none; }
 .switch input:checked + span { background: var(--accent); }
 .switch input:checked + span::after { transform: translateX(14px); }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-.remove { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; border-color: transparent; color: var(--muted); }
-.remove:hover { color: #ff453a; }
-.remove svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .empty { color: var(--muted); padding: 12px; }
 .add { background: var(--card); border: 1px dashed var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 10px; }
 .seg { display: inline-flex; justify-self: start; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
@@ -81,7 +89,8 @@ input[type=text]:focus { border-color: var(--accent); outline: none; }
 .error { color: #ff453a; }
 .status { position: sticky; bottom: 0; min-height: 1.4em; color: var(--muted); font-size: 12px; }
 @media (max-width: 480px) {
-  .acc { grid-template-columns: auto minmax(0, 1fr); }
-  .actions { grid-row: auto; grid-column: 2; justify-content: flex-start; }
+  .meta { grid-column: 1 / 4; flex-wrap: wrap; }
+  .dir { flex-basis: 100%; }
+  .tools .label { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

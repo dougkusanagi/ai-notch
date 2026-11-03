@@ -29,7 +29,7 @@ test('resetMs aceita ms, segundos e texto inválido', () => {
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { profileName, discoverProfiles } = require('../src/usage');
+const { profileName, discoverProfiles, loginCommand } = require('../src/usage');
 
 test('profileName gera nome e iniciais a partir do diretório', () => {
   expect(profileName('.claude', '.claude')).toEqual({ name: 'Principal', initials: 'P' });
@@ -81,4 +81,21 @@ test('discoverProfiles aplica nome, iniciais, ocultação e pastas adicionadas',
   const claude = list.find(p => p.dir === std);
   expect(claude).toMatchObject({ name: 'Pessoal Dev', initials: 'PD', hidden: true, custom: false });
   expect(list.find(p => p.dir === extra)).toMatchObject({ provider: 'codex', name: 'cliente-acme', initials: 'CL', custom: true, hidden: false });
+});
+
+test('loginCommand usa a pasta do perfil no shell de cada sistema', () => {
+  expect(loginCommand('claude', '/home/u/.claude-x', 'linux', '/home/u')).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude-x' claude`);
+  expect(loginCommand('codex', "/srv/it's", 'linux', '/home/u')).toBe(`CODEX_HOME='/srv/it'\\''s' codex login`);
+  expect(loginCommand('codex', "C:\\Users\\u\\.codex-b", 'win32')).toBe(`$env:CODEX_HOME='C:\\Users\\u\\.codex-b'; codex login`);
+});
+
+test('discoverProfiles respeita a ordem, oculta as removidas e informa o login', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'notch-'));
+  for (const d of ['.claude-a', '.claude-b']) { fs.mkdirSync(path.join(home, d)); fs.writeFileSync(path.join(home, d, '.credentials.json'), '{}'); }
+  delete process.env.CLAUDE_CONFIG_DIR; delete process.env.CODEX_HOME;
+  const j = d => path.join(home, d);
+  const list = await discoverProfiles(home, { order: [j('.claude-b'), j('.claude-a')], removed: [j('.codex')] });
+  expect(list.map(p => path.basename(p.dir))).toEqual(['.claude-b', '.claude-a', '.claude']);
+  expect(list.find(p => p.dir === j('.claude-a')).loggedIn).toBe(true);
+  expect(list.find(p => p.dir === j('.claude')).loggedIn).toBe(false);
 });

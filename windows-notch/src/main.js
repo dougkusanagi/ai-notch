@@ -1,7 +1,7 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, dialog, nativeTheme, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, dialog, clipboard, nativeTheme, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { fetchAll, demo, backoffMs, discoverProfiles } = require('./usage');
+const { fetchAll, demo, backoffMs, discoverProfiles, loginCommand } = require('./usage');
 const { buildLayout, titleFor, writeLayout } = require('./linux-layout');
 const linuxDesktop = require('./linux-desktop');
 
@@ -191,37 +191,56 @@ function setPref(patch) {
 }
 
 // ---- Contas: nome, iniciais, visibilidade e pastas de perfil adicionadas à mão ----
-const accountConfig = () => { const p = loadPrefs(); return { custom: p.custom ?? [], overrides: p.overrides ?? {} }; };
+const accountConfig = () => { const p = loadPrefs(); return { custom: p.custom ?? [], overrides: p.overrides ?? {}, removed: p.removed ?? [], order: p.order ?? [] }; };
 const PROVIDER_IDS = ['claude', 'codex'];
 
 async function accountsState() {
-  return (await discoverProfiles(undefined, accountConfig())).map(({ provider, dir, name, initials, hidden, custom }) =>
-    ({ provider, dir, name, initials, hidden, custom }));
+  const accounts = (await discoverProfiles(undefined, accountConfig())).map(({ provider, dir, name, initials, hidden, custom, loggedIn }) =>
+    ({ provider, dir, name, initials, hidden, custom, loggedIn, login: loginCommand(provider, dir) }));
+  return { accounts, removed: (loadPrefs().removed ?? []).length };
 }
 
 async function applyAccount(a) {
   const prefs = loadPrefs();
-  // Aceita ~ no começo, como no terminal.
-  const raw = typeof a?.dir === 'string' ? a.dir.trim().replace(/^~(?=$|[\\/])/, require('node:os').homedir()) : '';
-  const dir = raw ? path.resolve(raw) : '';
-  if (!dir) return;
   const custom = [...(prefs.custom ?? [])], overrides = { ...(prefs.overrides ?? {}) };
-  if (a.add) {
-    if (!PROVIDER_IDS.includes(a.provider) || !path.isAbsolute(raw)) throw new Error('Informe o serviço e a pasta completa do perfil.');
-    if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new Error('Essa pasta não existe.');
-    if (!custom.some(c => c.dir === dir)) custom.push({ provider: a.provider, dir });
-  } else if (a.remove) {
-    const i = custom.findIndex(c => c.dir === dir);
-    if (i >= 0) custom.splice(i, 1);
-    delete overrides[dir];
-  } else {
-    const o = { ...overrides[dir] };
-    if (typeof a.name === 'string') { const n = a.name.trim().slice(0, 40); if (n) o.name = n; else delete o.name; }
-    if (typeof a.initials === 'string') { const i = a.initials.trim().slice(0, 3).toUpperCase(); if (i) o.initials = i; else delete o.initials; }
-    if (typeof a.hidden === 'boolean') o.hidden = a.hidden;
-    if (Object.keys(o).length) overrides[dir] = o; else delete overrides[dir];
+  let removed = [...(prefs.removed ?? [])], order = [...(prefs.order ?? [])];
+  if (a.restore) removed = [];
+  else {
+    // Aceita ~ no começo, como no terminal.
+    const raw = typeof a?.dir === 'string' ? a.dir.trim().replace(/^~(?=$|[\\/])/, require('node:os').homedir()) : '';
+    const dir = raw ? path.resolve(raw) : '';
+    if (!dir) throw new Error('Informe a pasta do perfil.');
+    if (a.add) {
+      if (!PROVIDER_IDS.includes(a.provider) || !path.isAbsolute(raw)) throw new Error('Use o caminho completo da pasta, por exemplo ~/.claude-trabalho.');
+      if (fs.statSync(dir, { throwIfNoEntry: false })?.isFile()) throw new Error('Esse caminho é um arquivo. Escolha uma pasta.');
+      const known = (await discoverProfiles(undefined, { ...accountConfig(), removed: [] })).some(p => p.dir === dir);
+      if (known && !removed.includes(dir)) throw new Error('Essa pasta já está na lista.');
+      removed = removed.filter(d => d !== dir);
+      if (!known) custom.push({ provider: a.provider, dir });
+    } else if (a.remove) {
+      const i = custom.findIndex(c => c.dir === dir);
+      // Pastas encontradas sozinhas voltariam na próxima busca; ficam marcadas como removidas.
+      if (i >= 0) custom.splice(i, 1); else if (!removed.includes(dir)) removed.push(dir);
+      delete overrides[dir];
+      order = order.filter(d => d !== dir);
+    } else if (a.move) {
+      // Move só entre as contas do mesmo serviço, que é como o notch as agrupa.
+      const all = await discoverProfiles(undefined, accountConfig());
+      const provider = all.find(p => p.dir === dir)?.provider;
+      const same = all.filter(p => p.provider === provider).map(p => p.dir);
+      const from = same.indexOf(dir), to = from + Math.sign(a.move);
+      if (from < 0 || to < 0 || to >= same.length) return;
+      [same[from], same[to]] = [same[to], same[from]];
+      order = all.map(p => p.provider === provider ? same.shift() : p.dir);
+    } else {
+      const o = { ...overrides[dir] };
+      if (typeof a.name === 'string') { const n = a.name.trim().slice(0, 40); if (n) o.name = n; else delete o.name; }
+      if (typeof a.initials === 'string') { const i = a.initials.trim().slice(0, 3).toUpperCase(); if (i) o.initials = i; else delete o.initials; }
+      if (typeof a.hidden === 'boolean') o.hidden = a.hidden;
+      if (Object.keys(o).length) overrides[dir] = o; else delete overrides[dir];
+    }
   }
-  savePrefs({ ...prefs, custom, overrides });
+  savePrefs({ ...prefs, custom, overrides, removed, order });
   backoffUntil = 0;
   refresh(true);
 }
@@ -352,14 +371,15 @@ function start() {
   });
   ipcMain.handle('settings:get', () => monitorsState());
   ipcMain.handle('accounts:get', () => accountsState());
+  ipcMain.on('accounts:copy', (_e, text) => { if (typeof text === 'string' && text.length < 4096) clipboard.writeText(text); });
   ipcMain.handle('accounts:pick', async () => {
     const r = await dialog.showOpenDialog(settingsWin, { title: 'Escolher a pasta do perfil', defaultPath: require('node:os').homedir(),
       buttonLabel: 'Usar esta pasta', properties: ['openDirectory', 'showHiddenFiles'] });
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('accounts:set', async (_e, a) => {
-    try { await applyAccount(a ?? {}); return { accounts: await accountsState() }; }
-    catch (e) { return { accounts: await accountsState(), error: e.message }; }
+    try { await applyAccount(a ?? {}); return accountsState(); }
+    catch (e) { return { ...(await accountsState()), error: e.message }; }
   });
   ipcMain.handle('settings:set', (_e, s) => { applySetting(s ?? {}); return monitorsState(); });
 }
