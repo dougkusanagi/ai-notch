@@ -32,4 +32,19 @@ button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .center { justify-self: start; }
 .lock { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+h2.section { font-size: 15px; font-weight: 600; margin-top: 8px; }
+code { font-family: ui-monospace, monospace; font-size: 12px; }
+.accounts { display: grid; gap: 8px; }
+.acc { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+.acc.off { opacity: .75; }
+.acc .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acc .prov { font-weight: 600; min-width: 52px; }
+.acc .dir { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; flex: 1 1 100%; }
+input[type=text], select { font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+.acc input.name { flex: 1 1 140px; min-width: 0; }
+.acc input.ini { width: 64px; text-transform: uppercase; }
+.add { display: flex; flex-wrap: wrap; gap: 8px; }
+.add input { flex: 1 1 220px; min-width: 0; }
+.add button, .acc button { padding: 5px 10px; }
+.error { color: #ff453a; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

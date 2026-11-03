@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, nativeTheme, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { fetchAll, demo, backoffMs } = require('./usage');
+const { fetchAll, demo, backoffMs, discoverProfiles } = require('./usage');
 const { buildLayout, titleFor, writeLayout } = require('./linux-layout');
 const linuxDesktop = require('./linux-desktop');
 
@@ -38,7 +38,7 @@ let tray, timer, settingsWin, last = null, failures = 0, backoffUntil = 0;
 
 const prefsFile = () => path.join(app.getPath('userData'), 'prefs.json');
 // displays: null = só o principal; [] = oculto. edges: posição por monitor (padrão: edge).
-const DEFAULTS = { theme: 'system', displays: null, edge: 'top', edges: {}, locked: false, offsets: {} };
+const DEFAULTS = { theme: 'system', displays: null, edge: 'top', edges: {}, locked: false, offsets: {}, custom: [], overrides: {} };
 let prefsCache = null;
 function loadPrefs() {
   if (prefsCache) return prefsCache;
@@ -169,7 +169,7 @@ async function refresh(force) {
   if (!DEMO && last && Date.now() < backoffUntil) { broadcast('usage', last); return; }
   broadcast('loading', true);
   try {
-    const accounts = DEMO ? demo(DEMO) : await fetchAll(undefined, last?.accounts);
+    const accounts = DEMO ? demo(DEMO) : await fetchAll(undefined, last?.accounts, accountConfig());
     const limited = accounts.filter(a => a.retryAfterMs !== undefined);
     failures = limited.length ? failures + 1 : 0;
     backoffUntil = limited.length ? Date.now() + backoffMs(failures, Math.max(...limited.map(a => a.retryAfterMs))) : 0;
@@ -188,6 +188,40 @@ function setPref(patch) {
   syncWindows();
   updateTrayMenu();
   if (hidden && wins.size) refresh();
+}
+
+// ---- Contas: nome, iniciais, visibilidade e pastas de perfil adicionadas à mão ----
+const accountConfig = () => { const p = loadPrefs(); return { custom: p.custom ?? [], overrides: p.overrides ?? {} }; };
+const PROVIDER_IDS = ['claude', 'codex'];
+
+async function accountsState() {
+  return (await discoverProfiles(undefined, accountConfig())).map(({ provider, dir, name, initials, hidden, custom }) =>
+    ({ provider, dir, name, initials, hidden, custom }));
+}
+
+async function applyAccount(a) {
+  const prefs = loadPrefs();
+  const dir = typeof a?.dir === 'string' ? path.resolve(a.dir) : '';
+  if (!dir) return;
+  const custom = [...(prefs.custom ?? [])], overrides = { ...(prefs.overrides ?? {}) };
+  if (a.add) {
+    if (!PROVIDER_IDS.includes(a.provider) || !path.isAbsolute(String(a.dir))) throw new Error('Informe o serviço e a pasta completa do perfil.');
+    if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new Error('Essa pasta não existe.');
+    if (!custom.some(c => c.dir === dir)) custom.push({ provider: a.provider, dir });
+  } else if (a.remove) {
+    const i = custom.findIndex(c => c.dir === dir);
+    if (i >= 0) custom.splice(i, 1);
+    delete overrides[dir];
+  } else {
+    const o = { ...overrides[dir] };
+    if (typeof a.name === 'string') { const n = a.name.trim().slice(0, 40); if (n) o.name = n; else delete o.name; }
+    if (typeof a.initials === 'string') { const i = a.initials.trim().slice(0, 3).toUpperCase(); if (i) o.initials = i; else delete o.initials; }
+    if (typeof a.hidden === 'boolean') o.hidden = a.hidden;
+    if (Object.keys(o).length) overrides[dir] = o; else delete overrides[dir];
+  }
+  savePrefs({ ...prefs, custom, overrides });
+  backoffUntil = 0;
+  refresh(true);
 }
 
 // ---- Tela de configuração de monitores e posição ----
@@ -223,7 +257,7 @@ function applySetting(s) {
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); settingsWin.focus(); return; }
   settingsWin = new BrowserWindow({
-    width: 620, height: 460, minWidth: 460, minHeight: 360, title: 'AI Quota Notch · Configurações', skipTaskbar: false,
+    width: 640, height: 720, minWidth: 460, minHeight: 480, title: 'AI Quota Notch · Configurações', skipTaskbar: false,
     autoHideMenuBar: true, backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f5f5f7',
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, sandbox: true },
   });
@@ -315,6 +349,11 @@ function start() {
     Menu.buildFromTemplate(menuTemplate()).popup({ window: w, callback: () => { if (!w.isDestroyed()) w.webContents.send('pin', false); } });
   });
   ipcMain.handle('settings:get', () => monitorsState());
+  ipcMain.handle('accounts:get', () => accountsState());
+  ipcMain.handle('accounts:set', async (_e, a) => {
+    try { await applyAccount(a ?? {}); return { accounts: await accountsState() }; }
+    catch (e) { return { accounts: await accountsState(), error: e.message }; }
+  });
   ipcMain.handle('settings:set', (_e, s) => { applySetting(s ?? {}); return monitorsState(); });
 }
 

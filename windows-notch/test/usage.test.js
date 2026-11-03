@@ -67,3 +67,18 @@ test('espera progressiva de 5 a 60 minutos respeita o Retry-After maior', () => 
   expect(backoffMs(1, min(90))).toBe(min(90));
   expect(backoffMs(3, min(2))).toBe(min(20));
 });
+
+test('discoverProfiles aplica nome, iniciais, ocultação e pastas adicionadas', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'notch-'));
+  const extra = path.join(home, 'projetos', 'cliente-acme');
+  fs.mkdirSync(extra, { recursive: true });
+  delete process.env.CLAUDE_CONFIG_DIR; delete process.env.CODEX_HOME;
+  const std = path.join(home, '.claude');
+  const list = await discoverProfiles(home, {
+    custom: [{ provider: 'codex', dir: extra }],
+    overrides: { [std]: { name: 'Pessoal Dev', hidden: true } },
+  });
+  const claude = list.find(p => p.dir === std);
+  expect(claude).toMatchObject({ name: 'Pessoal Dev', initials: 'PD', hidden: true, custom: false });
+  expect(list.find(p => p.dir === extra)).toMatchObject({ provider: 'codex', name: 'cliente-acme', initials: 'CL', custom: true, hidden: false });
+});

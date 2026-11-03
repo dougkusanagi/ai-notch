@@ -96,8 +96,9 @@ function profileName(dirName, prefix) {
   return { name, initials };
 }
 
-// Perfis: o diretório padrão (ou a variável de ambiente) e irmãos com sufixo que tenham login.
-async function discoverProfiles(home = os.homedir()) {
+// Perfis: o diretório padrão (ou a variável de ambiente), irmãos com sufixo que tenham login
+// e pastas adicionadas à mão. `config` = { custom: [{ provider, dir }], overrides: { [dir]: { name, initials, hidden } } }.
+async function discoverProfiles(home = os.homedir(), config = {}) {
   const entries = await fs.readdir(home, { withFileTypes: true }).catch(() => []);
   const out = [];
   for (const [provider, cfg] of Object.entries(PROVIDERS)) {
@@ -109,9 +110,23 @@ async function discoverProfiles(home = os.homedir()) {
       const dir = path.join(home, e.name);
       if (await fs.access(path.join(dir, cfg.file)).then(() => true, () => false)) dirs.add(dir);
     }
-    for (const dir of dirs) out.push({ provider, dir, ...profileName(path.basename(dir), cfg.prefix) });
+    for (const c of config.custom ?? []) if (c.provider === provider) dirs.add(path.resolve(c.dir));
+    const custom = new Set((config.custom ?? []).filter(c => c.provider === provider).map(c => path.resolve(c.dir)));
+    for (const dir of dirs) {
+      const auto = profileName(path.basename(dir), cfg.prefix);
+      const o = config.overrides?.[dir] ?? {};
+      const name = o.name || (custom.has(dir) && !path.basename(dir).startsWith(cfg.prefix) ? path.basename(dir) : auto.name);
+      const initials = o.initials || (o.name ? initialsOf(o.name) : (name === auto.name ? auto.initials : initialsOf(name)));
+      out.push({ provider, dir, name, initials, hidden: o.hidden === true, custom: custom.has(dir) });
+    }
   }
   return out;
+}
+
+function initialsOf(name) {
+  const words = String(name).split(/\s+/).filter(Boolean);
+  if (!words.length) return '?';
+  return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
 }
 
 function demo(accounts = 1, now = Date.now()) {
@@ -140,8 +155,8 @@ function backoffMs(failures, retryAfterMs = 0) {
   return Math.max(retryAfterMs, Math.min(60, 5 * 2 ** Math.max(0, failures - 1)) * 60e3);
 }
 
-async function fetchAll(home, previous = []) {
-  const profiles = await discoverProfiles(home);
+async function fetchAll(home, previous = [], config = {}) {
+  const profiles = (await discoverProfiles(home, config)).filter(p => !p.hidden);
   const before = new Map(previous.map(a => [a.id, a]));
   return Promise.all(profiles.map(async ({ provider, dir, name, initials }) => {
     const base = { id: `${provider}:${dir}`, provider, name, initials };
@@ -153,4 +168,4 @@ async function fetchAll(home, previous = []) {
   }));
 }
 
-module.exports = { keepStale, backoffMs, normalizeClaude, normalizeOpenAI, resetMs, profileName, discoverProfiles, fetchAll, demo };
+module.exports = { keepStale, backoffMs, normalizeClaude, normalizeOpenAI, resetMs, profileName, initialsOf, discoverProfiles, fetchAll, demo };
