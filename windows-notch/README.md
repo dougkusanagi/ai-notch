@@ -39,3 +39,17 @@ bun run dist   # gera out\AI Quota Notch Setup 0.1.0.exe (NSIS, por usuário, se
 O instalador também pode ser gerado no Linux (precisa de acesso à internet na primeira vez). O app não é assinado, então o SmartScreen avisa na primeira execução. O ícone na bandeja é o plano B se o notch ficar escondido: clique atualiza, botão direito abre o menu (Atualizar, Iniciar com o Windows, Sair). `bun run icon` regenera `assets/icon.*` (precisa de Python com Pillow).
 
 Preferências (tema) ficam em `%APPDATA%\ai-quota-notch\prefs.json`.
+
+## Linux (Ubuntu/GNOME, protótipo)
+
+No Wayland o app não pode posicionar a própria janela. Uma extensão pequena, `ai-notch-helper@guepardosys`, lê `$XDG_RUNTIME_DIR/ai-notch/layout.json` (gravado pelo app) e posiciona as janelas `ai-notch:*`, deixando-as por cima e em todos os workspaces. A extensão `ai-usage@guepardosys` não muda.
+
+```bash
+mkdir -p ~/.local/share/gnome-shell/extensions
+ln -s "$PWD/../ai-notch-helper@guepardosys" ~/.local/share/gnome-shell/extensions/
+gnome-extensions enable ai-notch-helper@guepardosys   # no Wayland, saia da sessão e entre de novo na primeira vez
+bun install
+bun run start:linux
+```
+
+Em teste: a bandeja só aparece com AppIndicator no GNOME, e a barra superior pode ficar por cima do notch. Veja `docs/plans/linux-electron-posicionador.md`.

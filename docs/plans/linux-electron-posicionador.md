@@ -38,11 +38,11 @@ A extensão atual (`ai-usage@guepardosys/`) não é alterada.
 
 ## Passos
 
-- [ ] 1. `windows-notch/src/linux-layout.js`: módulo puro `buildLayout(wins)` + `writeLayout(layout, dir)` com escrita atômica. Testes em `windows-notch/test/linux-layout.test.js` (`bun test`).
-- [ ] 2. `main.js`: título `ai-notch:<id>` nas janelas do notch; no Linux, gravar o layout após `place()`/`syncWindows()` e ao fechar janelas; ativar `ozone-platform-hint=auto` só no Linux.
-- [ ] 3. Criar `ai-notch-helper@guepardosys/` (`metadata.json` com shell 46–50, `extension.js`) com `enable()`/`disable()` que desconectam todos os sinais e o monitor do arquivo.
-- [ ] 4. Script `package.json` `start:linux` e instruções no `windows-notch/README.md` (instalar a extensão, `gnome-extensions enable`, reiniciar sessão no Wayland).
-- [ ] 5. Fragmento `changelog/unreleased/linux-notch-electron.md` (Adicionado).
+- [x] 1. `windows-notch/src/linux-layout.js`: módulo puro `buildLayout(wins)` + `writeLayout(layout, dir)` com escrita atômica. Testes em `windows-notch/test/linux-layout.test.js` (`bun test`).
+- [x] 2. `main.js`: título `ai-notch:<id>` nas janelas do notch; no Linux, gravar o layout após `place()`/`syncWindows()` e ao fechar janelas; ativar `ozone-platform-hint=auto` só no Linux.
+- [x] 3. Criar `ai-notch-helper@guepardosys/` (`metadata.json` com shell 46–50, `extension.js`) com `enable()`/`disable()` que desconectam todos os sinais e o monitor do arquivo.
+- [x] 4. Script `package.json` `start:linux` e instruções no `windows-notch/README.md` (instalar a extensão, `gnome-extensions enable`, reiniciar sessão no Wayland).
+- [x] 5. Fragmento `changelog/unreleased/linux-notch-electron.md` (Adicionado).
 - [ ] 6. Teste manual no Ubuntu (usuário): roteiro abaixo.
 
 ## Roteiro de teste manual (Ubuntu, Wayland)
@@ -67,4 +67,4 @@ A extensão atual (`ai-usage@guepardosys/`) não é alterada.
 
 ## Próximo passo
 
-Implementar os passos 1–5; depois o usuário roda o roteiro no Ubuntu.
+Passos 1–5 feitos. O usuário instala a extensão e roda o roteiro no Ubuntu (passo 6); registrar resultados e falhas aqui.

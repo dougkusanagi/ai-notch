@@ -1,0 +1,13 @@
+{
+  "uuid": "ai-notch-helper@guepardosys",
+  "name": "AI Notch Helper",
+  "description": "Posiciona e mantém por cima as janelas do app AI Quota Notch (Electron) no Wayland.",
+  "shell-version": [
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "version": 1
+}

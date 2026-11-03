@@ -2,6 +2,11 @@ const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, nativeThem
 const path = require('node:path');
 const fs = require('node:fs');
 const { fetchAll, demo, backoffMs } = require('./usage');
+const { buildLayout, titleFor, writeLayout } = require('./linux-layout');
+
+const LINUX = process.platform === 'linux';
+// Wayland nativo no Linux; a extensão ai-notch-helper posiciona a janela.
+if (LINUX) app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
 
 const demoArg = process.argv.find(a => a.startsWith('--demo'));
 const DEMO = demoArg ? Number(demoArg.split('=')[1] ?? 1) : 0;
@@ -67,21 +72,31 @@ function place(win, display, offsets = loadPrefs().offsets) {
     left: { x: wa.x, y: cy + off }, right: { x: wa.x + wa.width - w, y: cy + off },
   }[edge];
   win.setBounds({ ...pos, width: w, height: h });
+  win.layoutBounds = { id: display.id, ...pos, width: w, height: h };
+  publishLayout();
+}
+
+// Linux: informa à extensão onde cada janela deve ficar.
+function publishLayout() {
+  if (!LINUX) return;
+  try { writeLayout(buildLayout([...wins.values()].filter(w => !w.isDestroyed() && w.layoutBounds).map(w => w.layoutBounds))); }
+  catch (e) { console.error('Falha ao gravar o layout:', e.message); }
 }
 
 function createWindow(display) {
   const win = new BrowserWindow({
     width: W, height: H, frame: false, transparent: true, resizable: false, movable: false,
-    skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false, backgroundColor: '#00000000',
+    title: titleFor(display.id), skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false, backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
   win.displayId = display.id;
+  win.on('page-title-updated', e => e.preventDefault()); // a extensão acha a janela pelo título
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setIgnoreMouseEvents(true, { forward: true });
   place(win, display);
   win.loadFile(path.join(__dirname, 'index.html'));
   win.once('ready-to-show', () => { win.showInactive(); if (last) win.webContents.send('usage', last); });
-  win.on('closed', () => { if (wins.get(display.id) === win) wins.delete(display.id); });
+  win.on('closed', () => { if (wins.get(display.id) === win) wins.delete(display.id); publishLayout(); });
   wins.set(display.id, win);
 }
 
@@ -97,6 +112,7 @@ function syncWindows() {
     if (w) place(w, d); else createWindow(d);
   }
   for (const [id, w] of wins) w.webContents.send('prefs', viewPrefs(id));
+  publishLayout();
 }
 
 // Durante o arrasto o deslocamento fica em memória; só é gravado ao soltar.
@@ -191,7 +207,7 @@ const menuTemplate = () => [
   // Zera o deslocamento nos dois eixos, então vale para topo, base e laterais.
   { label: 'Centralizar no monitor', click: () => setPref({ offsets: {} }) },
   { label: 'Fixar posição', type: 'checkbox', checked: loadPrefs().locked, click: item => setPref({ locked: item.checked }) },
-  { label: 'Iniciar com o Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
+  { label: LINUX ? 'Iniciar com o sistema' : 'Iniciar com o Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
     click: item => app.setLoginItemSettings({ openAtLogin: item.checked }) },
   { type: 'separator' },
   { label: 'Sair', click: () => app.quit() },
