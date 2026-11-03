@@ -8,6 +8,7 @@ export default class AiNotchHelper extends Extension {
     enable() {
         this._layout = new Map(); // título -> {x, y, width, height}
         this._tracked = new Map(); // MetaWindow -> ids de sinais
+        this._observed = new Map(); // todas as janelas, para detectar tela cheia
         this._applying = new Set();
         this._hiddenForFullscreen = new Set();
         this._file = Gio.File.new_for_path(
@@ -36,12 +37,15 @@ export default class AiNotchHelper extends Extension {
         global.display.disconnect(this._createdId);
         global.display.disconnect(this._fullscreenId);
         global.workspace_manager.disconnect(this._workspaceId);
+        for (const [win, ids] of this._observed)
+            for (const id of ids) win.disconnect(id);
         for (const [win, ids] of this._tracked) {
             for (const id of ids) win.disconnect(id);
             if (this._hiddenForFullscreen.has(win)) win.unminimize();
             try { win.unmake_above(); win.unstick(); } catch (_e) { /* janela já fechada */ }
         }
         this._tracked = null;
+        this._observed = null;
         this._layout = null;
         this._applying = null;
         this._hiddenForFullscreen = null;
@@ -68,14 +72,17 @@ export default class AiNotchHelper extends Extension {
     }
 
     _track(win) {
-        if (!win || this._tracked.has(win)) return;
+        if (!win || this._observed.has(win)) return;
+        const ids = [
+            win.connect('notify::fullscreen', () => this._syncFullscreen()),
+            win.connect('notify::minimized', () => this._syncFullscreen()),
+            win.connect('workspace-changed', () => this._syncFullscreen()),
+            win.connect('unmanaged', () => { this._observed?.delete(win); this._syncFullscreen(); }),
+            win.connect('notify::title', () => { if (this._isNotch(win) && !this._tracked.has(win)) this._adopt(win); }),
+        ];
+        this._observed.set(win, ids);
         if (this._isNotch(win)) return this._adopt(win);
-        // O título pode chegar depois da criação da janela.
-        const id = win.connect('notify::title', () => {
-            if (!this._isNotch(win)) return;
-            win.disconnect(id);
-            this._adopt(win);
-        });
+        this._syncFullscreen();
     }
 
     _adopt(win) {
@@ -90,8 +97,12 @@ export default class AiNotchHelper extends Extension {
     }
 
     _syncFullscreen() {
+        if (!this._tracked || !this._observed) return;
+        const workspace = global.workspace_manager.get_active_workspace();
         for (const win of this._tracked.keys()) {
-            const fullscreen = global.display.get_monitor_in_fullscreen(win.get_monitor());
+            const fullscreen = [...this._observed.keys()].some(other =>
+                other !== win && !this._isNotch(other) && other.is_fullscreen() && !other.minimized &&
+                other.located_on_workspace(workspace) && other.get_monitor() === win.get_monitor());
             if (fullscreen && !win.minimized) {
                 this._hiddenForFullscreen.add(win);
                 win.minimize();
