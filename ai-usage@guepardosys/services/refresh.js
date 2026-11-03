@@ -9,7 +9,7 @@ export class RefreshService {
         this.sender = sender; this._resetTimer = 0;
         this.accounts = accounts; this.settings = settings; this.onChange = onChange;
         this.providers = providers ?? {openai: new OpenAIProvider(), claude: new ClaudeProvider()};
-        this.states = new Map(); this._profiles = new Map(); this._generation = 0; this.busy = false; this._timer = 0;
+        this._nextQuery = new Map(); this.states = new Map(); this._profiles = new Map(); this._generation = 0; this.busy = false; this._timer = 0;
         this._signals = [settings.connect('changed::refresh-minutes', () => this.schedule()),
             settings.connect('changed::accounts', () => { this.cancel(); this.refresh(); })];
     }
@@ -21,6 +21,14 @@ export class RefreshService {
         });
     }
     cancel() { if (this._resetTimer) GLib.Source.remove(this._resetTimer); this._resetTimer = 0; this._generation++; this._cancellable?.cancel(); this._cancellable = null; this.busy = false; }
+    async query(account, cancellable) {
+        const key = `${account.provider}:${account.profilePath}`;
+        const next = this._nextQuery.get(key) ?? 0;
+        if (next > Date.now()) return null;
+        // Reserve before awaiting: manual clicks and duplicate profiles share the pause.
+        this._nextQuery.set(key, Date.now() + Math.max(300, this.settings.get_int('refresh-minutes') * 60) * 1000);
+        return this.providers[account.provider].getUsage(account, cancellable);
+    }
     async refresh() {
         if (this._destroyed || this.busy) return;
         const generation = ++this._generation;
@@ -44,7 +52,8 @@ export class RefreshService {
                 if (previous?.retryAt > Date.now()) continue;
                 let state;
                 try {
-                    const usage = await this.providers[account.provider].getUsage(account, cancellable);
+                    const usage = await this.query(account, cancellable);
+                    if (!usage) continue;
                     state = {usage, updated: Date.now() / 1000, messageError: previous?.messageError};
                     if (this._destroyed || generation !== this._generation) return;
                     let attempts;
@@ -61,8 +70,7 @@ export class RefreshService {
                             await this.sender(account, cancellable);
                             state.messageError = null;
                             state.messageSent = Date.now() / 1000;
-                            state.usage = await this.providers[account.provider].getUsage(account, cancellable);
-                            state.updated = Date.now() / 1000;
+                            // The next scheduled query observes the result without a second immediate request.
                         } catch (error) {
                             state.messageError = state.messageSent ? 'Mensagem enviada; aguardando atualização dos limites.' : error.message;
                         }
@@ -73,7 +81,7 @@ export class RefreshService {
                     // Repeated 429s need a longer pause even when Retry-After is absent.
                     const backoff = rateLimitFailures ? Math.min(3600, 300 * 2 ** Math.min(rateLimitFailures - 1, 4)) : 0;
                     const retryAfter = Math.max(error.retryAfter ?? 0, backoff);
-                    state = {usage: previous?.usage, error: error.message, updated: previous?.updated ?? null,
+                    state = {usage: previous?.usage, error: error.rateLimited && previous?.usage ? undefined : error.message, updated: previous?.updated ?? null,
                         rateLimitFailures, retryAt: retryAfter ? Date.now() + retryAfter * 1000 : 0};
                 }
                 if (this._destroyed || generation !== this._generation) return;
@@ -90,6 +98,8 @@ export class RefreshService {
                 const now = Date.now() / 1000;
                 const upcoming = [...this.states.values()].filter(s => !s.error)
                     .map(s => sessionWindow(s.usage)?.reset).filter(t => t > now);
+                upcoming.push(...[...this._nextQuery.values()].map(t => t / 1000).filter(t => t > now));
+                upcoming.push(...[...this.states.values()].map(s => s.retryAt / 1000).filter(t => t > now));
                 if (upcoming.length) this._resetTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT,
                     Math.max(1, Math.ceil(Math.min(...upcoming) - now) + 1), () => {
                         this._resetTimer = 0; this.refresh(); return GLib.SOURCE_REMOVE;

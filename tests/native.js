@@ -14,13 +14,13 @@ async function main() {
     const schemaSource = Gio.SettingsSchemaSource.new_from_directory(`${GLib.get_current_dir()}/build/ai-usage@guepardosys/schemas`, Gio.SettingsSchemaSource.get_default(), false);
     const settings = new Gio.Settings({settings_schema: schemaSource.lookup('org.gnome.shell.extensions.aiusage', false)});
     const accounts = new Accounts(settings);
-    for (let i=0;i<7;i++) accounts.put({id:`id-${i}`,provider:i===1?'claude':'openai',name:`Conta ${i}`,initials:'AB',color:'#0A84FF',profilePath:'~/.codex',visible:true});
+    for (let i=0;i<7;i++) accounts.put({id:`id-${i}`,provider:i===1?'claude':'openai',name:`Conta ${i}`,initials:'AB',color:'#0A84FF',profilePath:`~/.codex-${i}`,visible:true});
     assert(accounts.list().length===7,'N accounts'); accounts.move('id-0',1); assert(accounts.list()[1].id==='id-0','ordering');
     let active=0,max=0,destroyed=0,callbacks=0;
     const provider = {async getUsage(account) {active++; max=Math.max(max,active); await sleep(20); active--; if(account.id==='id-1') throw new Error('Sanitized error'); return {windows:[],primary:null};},destroy(){destroyed++;}};
     const service = new RefreshService(accounts, settings,()=>callbacks++,{openai:provider,claude:provider});
     await service.refresh(); assert(max<=4,'bounded concurrency'); assert(service.states.size===7,'all accounts'); assert(service.states.get('id-1').error,'isolated failure'); assert(!service.busy,'refresh finished');
-    service.start(); await sleep(2); const cancellable=service._cancellable; service.destroy(); const count=callbacks;
+    service._nextQuery.clear(); service.start(); await sleep(2); const cancellable=service._cancellable; service.destroy(); const count=callbacks;
     assert(cancellable.is_cancelled(),'cancel requests'); await sleep(60); assert(callbacks===count,'no callback after disable'); assert(!service._timer,'no timer'); assert(destroyed===2,'providers destroyed');
     // A successful quota survives failures, with cooldown enforced even for manual refresh.
     let calls = 0, failure = null;
@@ -30,19 +30,22 @@ async function main() {
         claude: {async getUsage() { calls++; if (failure) throw failure; return quota; }, destroy() {}},
     });
     await resilient.refresh(); const updated = resilient.states.get('fixture').updated;
+    await resilient.refresh(); assert(calls === 1, 'manual refresh does not query before minimum interval');
+    resilient._nextQuery.clear();
     failure = new UsageError('Limited', 0, true);
     await resilient.refresh();
     let stale = resilient.states.get('fixture');
-    assert(stale.usage === quota && stale.updated === updated && stale.error, 'retain and mark stale usage');
+    assert(stale.usage === quota && stale.updated === updated && !stale.error, 'retain usage during rate limit');
+    assert(!stale.error, 'rate limit keeps previous data without an error');
     assert(stale.retryAt >= Date.now() + 299000, '429 without header pauses five minutes');
     await resilient.refresh(); assert(calls === 2, 'manual refresh respects cooldown');
-    stale.retryAt = 0; await resilient.refresh(); stale = resilient.states.get('fixture');
+    resilient._nextQuery.clear(); stale.retryAt = 0; await resilient.refresh(); stale = resilient.states.get('fixture');
     assert(stale.retryAt >= Date.now() + 599000, 'repeated 429 increases cooldown');
-    stale.retryAt = 0; failure = new UsageError('Limited', 7200, true); await resilient.refresh();
+    resilient._nextQuery.clear(); stale.retryAt = 0; failure = new UsageError('Limited', 7200, true); await resilient.refresh();
     assert(resilient.states.get('fixture').retryAt >= Date.now() + 7199000, 'long provider Retry-After respected');
-    resilient.states.get('fixture').retryAt = 0; failure = null; await resilient.refresh();
+    resilient._nextQuery.clear(); resilient.states.get('fixture').retryAt = 0; failure = null; await resilient.refresh();
     assert(!resilient.states.get('fixture').error && !resilient.states.get('fixture').rateLimitFailures, 'success clears warning and backoff');
-    failure = new UsageError('Offline'); await resilient.refresh();
+    resilient._nextQuery.clear(); failure = new UsageError('Offline'); await resilient.refresh();
     assert(resilient.states.get('fixture').usage === quota, 'network errors retain last quota');
     profilePath = '/fixture/other'; await resilient.refresh();
     assert(!resilient.states.get('fixture').usage, 'profile change invalidates stale quota');
@@ -58,12 +61,12 @@ async function main() {
     const autoAccounts = {list: () => [autoAccount]};
     const sender = async account => { assert(account.resetPrompt === 'Diga oi.', 'custom prompt used'); sends++; if (autoFailure) throw new Error('Fixture failure'); };
     let automated = new RefreshService(autoAccounts, settings, () => {}, autoProviders, sender);
-    await automated.refresh(); assert(sends === 1 && reads === 2, 'send followed by quota refresh');
+    await automated.refresh(); assert(sends === 1 && reads === 1, 'send does not bypass query interval');
     await automated.refresh(); assert(sends === 1, 'idle endpoint does not duplicate send');
     automated.destroy();
     automated = new RefreshService(autoAccounts, settings, () => {}, autoProviders, sender);
     await automated.refresh(); assert(sends === 1, 'restart does not duplicate send');
-    settings.set_string('reset-message-attempts', '{}'); autoFailure = true;
+    automated._nextQuery.clear(); settings.set_string('reset-message-attempts', '{}'); autoFailure = true;
     await automated.refresh(); assert(automated.states.get('automation').messageError === 'Fixture failure', 'message failure visible separately');
     await automated.refresh(); assert(sends === 2, 'failure does not cause a send loop');
     automated.destroy();
