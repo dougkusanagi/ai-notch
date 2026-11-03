@@ -4,7 +4,7 @@ Indicador pequeno no topo central da tela, no estilo do notch do MacBook. Fechad
 
 Com mais de uma conta do mesmo serviço, o notch fechado mostra um anel por conta com as iniciais do perfil no centro, sem o percentual, e o painel agrupa as contas por serviço. Com uma conta só, as iniciais não aparecem e o percentual fica ao lado do anel.
 
-Pelo menu (⋯, botão direito no notch ou na bandeja), **Monitores e posição…** abre uma janela onde cada monitor tem sua caixa "Mostrar o notch aqui" (sem nenhuma marcada o notch fica oculto; clicar no ícone da bandeja o traz de volta) e sua própria borda: topo, base, esquerda ou direita. Base e laterais ficam acima da barra de tarefas. Arraste o notch ao longo da borda para tirá-lo de cima de outra informação; o limite considera o painel aberto, para não vazar para outro monitor. Duplo clique ou **Centralizar no monitor** volta ao centro. **Fixar posição** bloqueia o arrasto.
+O botão de engrenagem no rodapé do painel (ou **Configurações…** no menu ⋯, no botão direito do notch e na bandeja) abre a tela de configuração, onde cada monitor tem sua caixa "Mostrar o notch aqui" (sem nenhuma marcada o notch fica oculto; clicar no ícone da bandeja o traz de volta) e sua própria borda: topo, base, esquerda ou direita. Base e laterais ficam acima da barra de tarefas. Arraste o notch ao longo da borda para tirá-lo de cima de outra informação; o limite considera o painel aberto, para não vazar para outro monitor. Duplo clique ou **Centralizar no monitor** volta ao centro. **Fixar posição** bloqueia o arrasto.
 
 Fora do notch, a janela é transparente e deixa os cliques passarem.
 
@@ -42,8 +42,8 @@ Preferências (tema) ficam em `%APPDATA%\ai-quota-notch\prefs.json`.
 
 ## Linux (Ubuntu/GNOME, protótipo)
 
-No Wayland o app não pode posicionar a própria janela. Uma extensão pequena, `ai-notch-helper@guepardosys`, lê `$XDG_RUNTIME_DIR/ai-notch/layout.json` (gravado pelo app) e posiciona as janelas `ai-notch:*`, deixando-as por cima e em todos os workspaces. A extensão `ai-usage@guepardosys` não muda.
-Quando uma janela entra em tela cheia, o notch daquele monitor fica oculto até a saída desse modo.
+No Linux o app roda em Wayland nativo. Como o Wayland não deixa recortar a área de cliques, a janela tem o tamanho do notch e muda de tamanho junto com ele, sem "janela fantasma" transparente. A bandeja usa `assets/tray-linux.png` (anéis claros, visíveis na barra escura) e só aparece com a extensão AppIndicator ativa. Uma extensão pequena, `ai-notch-helper@guepardosys`, lê `$XDG_RUNTIME_DIR/ai-notch/layout.json` (gravado pelo app) e posiciona as janelas `ai-notch:*`, deixando-as por cima e em todos os workspaces; ela também tira o notch da lista de apps do dock (a janela de Configurações continua aparecendo). Depois de atualizar a extensão, reinicie a sessão. A extensão `ai-usage@guepardosys` não muda.
+Quando uma janela entra em tela cheia, o helper oculta a superfície do notch naquele monitor até a saída desse modo, sem depender da minimização da janela Electron.
 
 ```bash
 mkdir -p ~/.local/share/gnome-shell/extensions
@@ -53,4 +53,6 @@ bun install
 bun run start:linux
 ```
 
-Em teste: a bandeja só aparece com AppIndicator no GNOME, e a barra superior pode ficar por cima do notch. Veja `docs/plans/linux-electron-posicionador.md`.
+Em teste: a barra superior pode ficar por cima do notch. Veja `docs/plans/linux-electron-posicionador.md`.
+
+No Linux, a janela recebe o mouse diretamente e acompanha o tamanho do widget durante a expansão. Sem sombra no painel aberto, porque a janela a cortaria. `bun run icon` também gera `assets/tray-linux.png`.

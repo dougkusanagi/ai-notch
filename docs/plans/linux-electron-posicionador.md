@@ -56,7 +56,7 @@ A extensão atual (`ai-usage@guepardosys/`) não é alterada.
 
 ## Tentativas que falharam
 
-- (nenhuma ainda)
+- Wayland nativo: `setShape`/`setIgnoreMouseEvents` não funcionam (janela fantasma de 460×640) e `skipTaskbar` é ignorado (notch no dock). X11 também falhou: a GPU do Electron morre (exit 139) e nada é desenhado. Solução atual: janela do tamanho do notch + filtro do dock na extensão — veja `docs/adr/0009-notch-linux-janela-do-tamanho-do-notch.md`.
 
 ## Dúvidas abertas
 
@@ -66,5 +66,7 @@ A extensão atual (`ai-usage@guepardosys/`) não é alterada.
 - Ícone da bandeja: no GNOME sem AppIndicator não aparece; avaliar menu na extensão depois do protótipo.
 
 ## Próximo passo
+
+Verificado em 2026-11-03 com captura pelo portal e ponteiro pela API RemoteDesktop do Mutter: notch desenhado nos dois monitores, hover abre e fecha com a janela acompanhando o tamanho, arrasto de 100px move 100px, engrenagem abre Configurações, ícone da bandeja visível. Falta: reiniciar a sessão para carregar a extensão nova e confirmar que o notch sai do dock.
 
 Passos 1–5 feitos. O usuário instala a extensão e roda o roteiro no Ubuntu (passo 6); registrar resultados e falhas aqui.

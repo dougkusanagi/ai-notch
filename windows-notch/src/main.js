@@ -5,7 +5,8 @@ const { fetchAll, demo, backoffMs } = require('./usage');
 const { buildLayout, titleFor, writeLayout } = require('./linux-layout');
 
 const LINUX = process.platform === 'linux';
-// Wayland nativo no Linux; a extensão ai-notch-helper posiciona a janela.
+// Wayland nativo no Linux; a extensão ai-notch-helper posiciona a janela e a tira do dock.
+// X11 não serve: nesta máquina o processo da GPU morre (exit 139) e nada é desenhado.
 if (LINUX) app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
 
 const demoArg = process.argv.find(a => a.startsWith('--demo'));
@@ -65,15 +66,27 @@ function clampOffset(display, edge, px) {
 function place(win, display, offsets = loadPrefs().offsets) {
   const edge = edgeOf(display.id), b = display.bounds, wa = display.workArea;
   const off = clampOffset(display, edge, offsets[offsetKey(edge, display.id)]);
-  const w = Math.min(W, wa.width), h = Math.min(H, wa.height);
-  const cx = Math.round(b.x + (b.width - w) / 2), cy = Math.round(wa.y + (wa.height - h) / 2);
+  const { w, h } = windowSize(win, edge, wa);
+  // Centro do notch no eixo da borda: meio do monitor (topo/base) ou da área útil (laterais), mais o deslocamento.
+  const cx = Math.round(b.x + b.width / 2 - w / 2) + off, cy = Math.round(wa.y + wa.height / 2 - h / 2) + off;
   const pos = {
-    top: { x: cx + off, y: b.y }, bottom: { x: cx + off, y: wa.y + wa.height - h },
-    left: { x: wa.x, y: cy + off }, right: { x: wa.x + wa.width - w, y: cy + off },
+    top: { x: cx, y: b.y }, bottom: { x: cx, y: wa.y + wa.height - h },
+    left: { x: wa.x, y: cy }, right: { x: wa.x + wa.width - w, y: cy },
   }[edge];
   win.setBounds({ ...pos, width: w, height: h });
   win.layoutBounds = { id: display.id, ...pos, width: w, height: h };
   publishLayout();
+}
+
+// Windows: janela fixa de W×H e o mouse atravessa a parte transparente (setIgnoreMouseEvents).
+// Linux/Wayland não tem essa opção, então a janela tem o tamanho do notch, mais as duas
+// orelhas (cantos côncavos, 10px cada) no eixo da borda. Assim não sobra "janela fantasma".
+const EAR = 10;
+function windowSize(win, edge, wa) {
+  if (!LINUX) return { w: Math.min(W, wa.width), h: Math.min(H, wa.height) };
+  const c = win.contentSize ?? { width: 200, height: 30 };
+  const side = isSide(edge);
+  return { w: Math.min(W, wa.width, Math.ceil(c.width) + (side ? 0 : 2 * EAR)), h: Math.min(H, wa.height, Math.ceil(c.height) + (side ? 2 * EAR : 0)) };
 }
 
 // Linux: informa à extensão onde cada janela deve ficar.
@@ -85,14 +98,15 @@ function publishLayout() {
 
 function createWindow(display) {
   const win = new BrowserWindow({
-    width: W, height: H, frame: false, transparent: true, resizable: false, movable: false,
+    width: W, height: H, frame: false, transparent: true, resizable: LINUX, // Linux: a janela muda de tamanho com o notch
+    movable: false,
     title: titleFor(display.id), skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false, backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
   win.displayId = display.id;
   win.on('page-title-updated', e => e.preventDefault()); // a extensão acha a janela pelo título
   win.setAlwaysOnTop(true, 'screen-saver');
-  win.setIgnoreMouseEvents(true, { forward: true });
+  if (!LINUX) win.setIgnoreMouseEvents(true, { forward: true });
   place(win, display);
   win.loadFile(path.join(__dirname, 'index.html'));
   win.once('ready-to-show', () => { win.showInactive(); if (last) win.webContents.send('usage', last); });
@@ -193,7 +207,7 @@ function applySetting(s) {
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); settingsWin.focus(); return; }
   settingsWin = new BrowserWindow({
-    width: 620, height: 460, minWidth: 460, minHeight: 360, title: 'AI Quota Notch · Monitores e posição',
+    width: 620, height: 460, minWidth: 460, minHeight: 360, title: 'AI Quota Notch · Configurações', skipTaskbar: false,
     autoHideMenuBar: true, backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f5f5f7',
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, sandbox: true },
   });
@@ -204,7 +218,7 @@ function openSettings() {
 
 const menuTemplate = () => [
   { label: 'Atualizar agora', click: () => refresh(true) },
-  { label: 'Monitores e posição…', click: openSettings },
+  { label: 'Configurações…', click: openSettings },
   // Zera o deslocamento nos dois eixos, então vale para topo, base e laterais.
   { label: 'Centralizar no monitor', click: () => setPref({ offsets: {} }) },
   { label: 'Fixar posição', type: 'checkbox', checked: loadPrefs().locked, click: item => setPref({ locked: item.checked }) },
@@ -231,12 +245,13 @@ function start() {
   for (const ev of ['display-metrics-changed', 'display-added', 'display-removed']) screen.on(ev, syncWindows);
   timer = setInterval(refresh, REFRESH_MS);
   // O Windows pode trazer a barra de tarefas para a frente das janelas fixas; reafirma o topo.
-  keepOnTop = setInterval(() => { for (const w of wins.values()) if (!w.isDestroyed()) w.moveTop(); }, 3000);
+  if (!LINUX) keepOnTop = setInterval(() => { for (const w of wins.values()) if (!w.isDestroyed()) w.moveTop(); }, 3000);
   // Depois de suspender ou desbloquear, a rede pode demorar um pouco a voltar.
   for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => setTimeout(refresh, 5000));
 
   // A bandeja é o plano B caso o notch fique escondido ou oculto.
-  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png')).resize({ width: 16, height: 16 }));
+  // No Linux o fundo escuro do ícone some na barra do GNOME; lá vale a versão só com os anéis.
+  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, '..', 'assets', LINUX ? 'tray-linux.png' : 'icon.png')).resize({ width: 16, height: 16 }));
   tray.setToolTip('AI Quota Notch');
   tray.on('click', () => {
     // Oculto em todos os monitores: o clique traz o notch de volta no principal.
@@ -246,7 +261,16 @@ function start() {
   if (LINUX) updateTrayMenu();
   else tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate(menuTemplate())));
 
-  ipcMain.on('interactive', (e, on) => winOf(e)?.setIgnoreMouseEvents(!on, { forward: true }));
+  ipcMain.on('interactive', (e, on) => {
+    if (!LINUX) winOf(e)?.setIgnoreMouseEvents(!on, { forward: true });
+  });
+  ipcMain.on('notch-size', (e, size) => {
+    if (!LINUX || !size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
+    const win = winOf(e), display = screen.getAllDisplays().find(d => d.id === win?.displayId);
+    if (!win || win.isDestroyed() || !display) return;
+    win.contentSize = { width: Math.max(1, Math.min(W, size.width)), height: Math.max(1, Math.min(H, size.height)) };
+    place(win, display);
+  });
   ipcMain.on('drag', (e, dx) => { const w = winOf(e); if (w && Number.isFinite(dx)) moveBy(w, dx); });
   ipcMain.on('drag-end', commitDrag);
   ipcMain.on('center', e => {
@@ -254,6 +278,7 @@ function start() {
     if (w && !loadPrefs().locked) applySetting({ id: w.displayId, center: true });
   });
   ipcMain.on('refresh', () => refresh());
+  ipcMain.on('open-settings', openSettings);
   ipcMain.handle('prefs', e => viewPrefs(winOf(e)?.displayId));
   ipcMain.on('theme', (_e, theme) => {
     if (!THEMES.includes(theme)) return;

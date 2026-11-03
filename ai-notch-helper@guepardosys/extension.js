@@ -1,5 +1,6 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Shell from 'gi://Shell';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const PREFIX = 'ai-notch:';
@@ -24,12 +25,36 @@ export default class AiNotchHelper extends Extension {
         this._fullscreenId = global.display.connect('in-fullscreen-changed', () => this._syncFullscreen());
         this._workspaceId = global.workspace_manager.connect('active-workspace-changed', () => this._syncFullscreen());
 
+        this._hideFromDock();
         this._reload();
         for (const actor of global.get_window_actors())
             this._track(actor.meta_window);
     }
 
+    // O Wayland ignora skipTaskbar, então o app aparece no dock. O dock lê os apps em
+    // execução de Shell.AppSystem.get_running(); aqui tiramos da lista o app cujas janelas
+    // são todas do notch (a janela de Configurações continua aparecendo). O filtro fica
+    // instalado até o fim da sessão e só deixa de agir no disable(), porque o dock também
+    // troca esse método e restaurar o original apagaria a troca dele.
+    _hideFromDock() {
+        const proto = Shell.AppSystem.prototype;
+        const state = {on: true};
+        this._dockFilter = state;
+        const original = proto.get_running;
+        proto.get_running = function (...args) {
+            const apps = original.apply(this, args);
+            if (!state.on)
+                return apps;
+            return apps.filter(app => {
+                const wins = app.get_windows();
+                return !wins.length || !wins.every(w => (w.get_title() ?? '').startsWith(PREFIX));
+            });
+        };
+    }
+
     disable() {
+        if (this._dockFilter) this._dockFilter.on = false;
+        this._dockFilter = null;
         if (this._reloadTimer) GLib.source_remove(this._reloadTimer);
         this._reloadTimer = null;
         this._monitor?.disconnect(this._monitorId);
@@ -41,7 +66,11 @@ export default class AiNotchHelper extends Extension {
             for (const id of ids) win.disconnect(id);
         for (const [win, ids] of this._tracked) {
             for (const id of ids) win.disconnect(id);
-            if (this._hiddenForFullscreen.has(win)) win.unminimize();
+            if (this._hiddenForFullscreen.has(win)) {
+                const actor = win.get_compositor_private();
+                if (actor) actor.opacity = 255;
+                actor?.show();
+            }
             try { win.unmake_above(); win.unstick(); } catch (_e) { /* janela já fechada */ }
         }
         this._tracked = null;
@@ -103,11 +132,14 @@ export default class AiNotchHelper extends Extension {
             const fullscreen = [...this._observed.keys()].some(other =>
                 other !== win && !this._isNotch(other) && other.is_fullscreen() && !other.minimized &&
                 other.located_on_workspace(workspace) && other.get_monitor() === win.get_monitor());
-            if (fullscreen && !win.minimized) {
+            const actor = win.get_compositor_private();
+            if (fullscreen) {
                 this._hiddenForFullscreen.add(win);
-                win.minimize();
-            } else if (!fullscreen && this._hiddenForFullscreen.delete(win)) {
-                win.unminimize();
+                if (actor) actor.opacity = 0;
+                actor?.hide();
+            } else if (this._hiddenForFullscreen.delete(win)) {
+                if (actor) actor.opacity = 255;
+                actor?.show();
             }
         }
     }

@@ -145,8 +145,22 @@ const sideways = () => edge === 'left' || edge === 'right';
 function fit() {
   const open = notchEl.classList.contains('open');
   const panel = $('#panel'), compact = $('#compact');
-  notchEl.style.width = `${open ? panel.offsetWidth : sideways() ? 30 : compact.offsetWidth}px`;
-  notchEl.style.height = `${open ? panel.offsetHeight : sideways() ? compact.offsetHeight : 30}px`;
+  const w = open ? panel.offsetWidth : sideways() ? 30 : compact.offsetWidth;
+  const h = open ? panel.offsetHeight : sideways() ? compact.offsetHeight : 30;
+  notchEl.style.width = `${w}px`;
+  notchEl.style.height = `${h}px`;
+  if (api.platform === 'linux') reportSize(w, h);
+}
+
+// Linux: a janela acompanha o tamanho do notch. Cresce na hora (a animação precisa de espaço)
+// e só encolhe depois que a transição de .45s termina.
+let sent = { w: 0, h: 0 }, shrinkTimer = null;
+function reportSize(w, h) {
+  clearTimeout(shrinkTimer);
+  const send = (sw, sh) => { sent = { w: sw, h: sh }; api.notchSize({ width: sw, height: sh }); };
+  const gw = Math.max(w, sent.w), gh = Math.max(h, sent.h);
+  if (gw !== sent.w || gh !== sent.h) send(gw, gh);
+  if (gw !== w || gh !== h) shrinkTimer = setTimeout(() => send(w, h), 520);
 }
 function applyPrefs(p) {
   edge = p.edge || 'top';
@@ -177,19 +191,29 @@ api.onPin(on => { pinned = on; if (on) open(); else if (!hovering) close(); });
 
 // Arrastar ao longo da borda (horizontal no topo/base, vertical nas laterais) move o notch; duplo clique volta ao centro.
 // Botões do painel não iniciam o arrasto.
-let dragX = null, dragged = false;
-const pos = e => sideways() ? e.screenY : e.screenX; // eixo do arrasto depende da borda
+// Windows: screenX é confiável, porque a janela muda de lugar na hora.
+// Linux/Wayland: quem move a janela é a extensão, com atraso, e o Chromium já considera a
+// posição nova; somar deltas de screenX realimenta o erro e o notch dispara. Lá a medida é
+// a distância entre o ponteiro e o ponto agarrado, dentro da própria janela, com no máximo
+// um movimento a cada 100 ms para a extensão aplicar o anterior.
+const LINUX_DRAG = api.platform === 'linux', DRAG_EVERY_MS = 100;
+let dragX = null, dragged = false, lastDragAt = 0;
+const pos = e => LINUX_DRAG ? (sideways() ? e.clientY : e.clientX) : (sideways() ? e.screenY : e.screenX);
 notchEl.addEventListener('pointerdown', e => {
   if (e.button !== 0 || e.target.closest('button') || document.body.dataset.locked === 'true') return;
-  dragX = pos(e); dragged = false;
+  dragX = pos(e); dragged = false; lastDragAt = 0;
   notchEl.setPointerCapture(e.pointerId);
 });
 notchEl.addEventListener('pointermove', e => {
   if (dragX === null) return;
   const dx = pos(e) - dragX;
   if (!dragged && Math.abs(dx) < 3) return;
-  dragged = true; dragX = pos(e);
+  dragged = true;
   notchEl.classList.add('dragging');
+  if (LINUX_DRAG) {
+    if (performance.now() - lastDragAt < DRAG_EVERY_MS) return;
+    lastDragAt = performance.now();
+  } else dragX = pos(e);
   api.drag(dx);
 });
 const endDrag = () => {
@@ -203,12 +227,14 @@ notchEl.addEventListener('dblclick', e => {
   if (!e.target.closest('button') && document.body.dataset.locked !== 'true') api.center();
 });
 
+document.body.dataset.platform = api.platform;
 api.onUsage(d => { data = d; render(); });
 api.onLoading(on => {
   $('#pulse').classList.toggle('busy', on);
   $('#refresh').classList.toggle('spin', on);
 });
 $('#refresh').addEventListener('click', () => api.refresh());
+$('#settings').addEventListener('click', () => api.openSettings());
 $('#more').addEventListener('click', () => api.menu());
 
 function setThemeUI(t) {

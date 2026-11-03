@@ -162,3 +162,6 @@ body[data-edge="left"] .panel { left: 0; }
 body[data-edge="right"] .panel { left: auto; right: 0; transform: translate(6px, -50%); }
 body[data-edge="left"] .open .panel { transform: translate(0, -50%); }
 body[data-edge="right"] .open .panel { transform: translate(0, -50%); }
+
+/* Linux: a janela é recortada no contorno do notch, então a sombra seria cortada. */
+body[data-platform="linux"] .notch.open { box-shadow: none; }
