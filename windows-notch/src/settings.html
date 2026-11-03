@@ -13,14 +13,22 @@
   <div id="monitors" class="monitors"></div>
   <label class="lock"><input type="checkbox" id="locked"> Fixar posição (impede arrastar sem querer)</label>
   <h2 class="section">Contas</h2>
-  <p class="hint">Mude o nome e as iniciais, oculte uma conta ou adicione outra pasta de login (por exemplo, a pasta <code>.claude-trabalho</code> do seu usuário).</p>
+  <p class="hint">Contas encontradas nas pastas de login do Claude Code e do Codex CLI. Mude o nome ou as iniciais, oculte uma conta ou adicione outra pasta.</p>
   <div id="accounts" class="accounts"></div>
   <form id="add" class="add" autocomplete="off">
-    <select id="add-provider" aria-label="Serviço"><option value="claude">Claude</option><option value="codex">Codex</option></select>
-    <input id="add-dir" type="text" placeholder="Pasta completa do perfil" aria-label="Pasta do perfil" required>
-    <button type="submit">Adicionar conta</button>
+    <h3>Adicionar conta</h3>
+    <div class="seg" role="radiogroup" aria-label="Serviço">
+      <label><input type="radio" name="provider" value="claude" checked><span>Claude</span></label>
+      <label><input type="radio" name="provider" value="codex"><span>Codex</span></label>
+    </div>
+    <div class="pick">
+      <input id="add-dir" type="text" placeholder="Pasta do perfil, por exemplo ~/.claude-trabalho" aria-label="Pasta do perfil" required>
+      <button type="button" id="browse">Escolher pasta…</button>
+    </div>
+    <p id="add-error" class="error" role="alert" hidden></p>
+    <button type="submit" class="primary">Adicionar</button>
   </form>
-  <p id="add-error" class="error" role="alert" hidden></p>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
 </main>
 <script src="settings.js"></script>
 </body>

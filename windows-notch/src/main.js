@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, nativeTheme, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, dialog, nativeTheme, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { fetchAll, demo, backoffMs, discoverProfiles } = require('./usage');
@@ -201,11 +201,13 @@ async function accountsState() {
 
 async function applyAccount(a) {
   const prefs = loadPrefs();
-  const dir = typeof a?.dir === 'string' ? path.resolve(a.dir) : '';
+  // Aceita ~ no começo, como no terminal.
+  const raw = typeof a?.dir === 'string' ? a.dir.trim().replace(/^~(?=$|[\\/])/, require('node:os').homedir()) : '';
+  const dir = raw ? path.resolve(raw) : '';
   if (!dir) return;
   const custom = [...(prefs.custom ?? [])], overrides = { ...(prefs.overrides ?? {}) };
   if (a.add) {
-    if (!PROVIDER_IDS.includes(a.provider) || !path.isAbsolute(String(a.dir))) throw new Error('Informe o serviço e a pasta completa do perfil.');
+    if (!PROVIDER_IDS.includes(a.provider) || !path.isAbsolute(raw)) throw new Error('Informe o serviço e a pasta completa do perfil.');
     if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new Error('Essa pasta não existe.');
     if (!custom.some(c => c.dir === dir)) custom.push({ provider: a.provider, dir });
   } else if (a.remove) {
@@ -350,6 +352,11 @@ function start() {
   });
   ipcMain.handle('settings:get', () => monitorsState());
   ipcMain.handle('accounts:get', () => accountsState());
+  ipcMain.handle('accounts:pick', async () => {
+    const r = await dialog.showOpenDialog(settingsWin, { title: 'Escolher a pasta do perfil', defaultPath: require('node:os').homedir(),
+      buttonLabel: 'Usar esta pasta', properties: ['openDirectory', 'showHiddenFiles'] });
+    return r.canceled ? null : r.filePaths[0];
+  });
   ipcMain.handle('accounts:set', async (_e, a) => {
     try { await applyAccount(a ?? {}); return { accounts: await accountsState() }; }
     catch (e) { return { accounts: await accountsState(), error: e.message }; }
