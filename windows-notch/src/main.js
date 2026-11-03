@@ -3,11 +3,27 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { fetchAll, demo, backoffMs } = require('./usage');
 const { buildLayout, titleFor, writeLayout } = require('./linux-layout');
+const linuxDesktop = require('./linux-desktop');
 
 const LINUX = process.platform === 'linux';
 // Wayland nativo no Linux; a extensão ai-notch-helper posiciona a janela e a tira do dock.
 // X11 não serve: nesta máquina o processo da GPU morre (exit 139) e nada é desenhado.
-if (LINUX) app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+if (LINUX) {
+  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  // No Wayland o app_id vem do nome do .desktop; assim o GNOME liga a janela ao atalho.
+  app.setDesktopName(linuxDesktop.DESKTOP_FILE);
+}
+
+// Comando que reabre o app. APPIMAGE só vale empacotado: em desenvolvimento a variável
+// pode vir herdada de outro AppImage (ex.: o terminal do T3 Code) e apontaria para ele.
+const launchCommand = () => !app.isPackaged ? [process.execPath, app.getAppPath()]
+  : process.env.APPIMAGE ? [process.env.APPIMAGE] : [process.execPath];
+const startsWithSystem = () => LINUX ? linuxDesktop.autostartEnabled() : app.getLoginItemSettings().openAtLogin;
+function setStartsWithSystem(on) {
+  if (!LINUX) return app.setLoginItemSettings({ openAtLogin: on });
+  try { linuxDesktop.setAutostart(on, launchCommand()); }
+  catch (e) { console.error('Falha ao configurar o início com o sistema:', e.message); }
+}
 
 const demoArg = process.argv.find(a => a.startsWith('--demo'));
 const DEMO = demoArg ? Number(demoArg.split('=')[1] ?? 1) : 0;
@@ -222,8 +238,8 @@ const menuTemplate = () => [
   // Zera o deslocamento nos dois eixos, então vale para topo, base e laterais.
   { label: 'Centralizar no monitor', click: () => setPref({ offsets: {} }) },
   { label: 'Fixar posição', type: 'checkbox', checked: loadPrefs().locked, click: item => setPref({ locked: item.checked }) },
-  { label: LINUX ? 'Iniciar com o sistema' : 'Iniciar com o Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
-    click: item => { app.setLoginItemSettings({ openAtLogin: item.checked }); updateTrayMenu(); } },
+  { label: LINUX ? 'Iniciar com o sistema' : 'Iniciar com o Windows', type: 'checkbox', checked: startsWithSystem(),
+    click: item => { setStartsWithSystem(item.checked); updateTrayMenu(); } },
   { type: 'separator' },
   { label: 'Sair', click: () => app.quit() },
 ];
@@ -234,11 +250,22 @@ function updateTrayMenu() {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => refresh(true));
+  // Abrir de novo pelo menu de aplicativos traz o notch de volta, como o clique na bandeja.
+  app.on('second-instance', () => app.isReady() && showNotch());
   app.whenReady().then(start);
 }
 
+// Oculto em todos os monitores: traz o notch de volta no principal.
+function showNotch() {
+  if (!wins.size) setPref({ displays: null }); else for (const w of wins.values()) w.showInactive();
+  refresh(true);
+}
+
 function start() {
+  if (LINUX) {
+    try { linuxDesktop.refreshAutostart(launchCommand()); }
+    catch (e) { console.error('Falha ao atualizar o início com o sistema:', e.message); }
+  }
   nativeTheme.themeSource = loadPrefs().theme;
   syncWindows();
   refresh();
@@ -253,11 +280,7 @@ function start() {
   // No Linux o fundo escuro do ícone some na barra do GNOME; lá vale a versão só com os anéis.
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, '..', 'assets', LINUX ? 'tray-linux.png' : 'icon.png')).resize({ width: 16, height: 16 }));
   tray.setToolTip('AI Quota Notch');
-  tray.on('click', () => {
-    // Oculto em todos os monitores: o clique traz o notch de volta no principal.
-    if (!wins.size) setPref({ displays: null }); else for (const w of wins.values()) w.showInactive();
-    refresh(true);
-  });
+  tray.on('click', showNotch);
   if (LINUX) updateTrayMenu();
   else tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate(menuTemplate())));
 

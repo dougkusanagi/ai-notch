@@ -53,6 +53,15 @@ bun install
 bun run start:linux
 ```
 
+### Instalar no Linux (AppImage)
+
+```bash
+cd windows-notch
+bun run dist:linux   # gera out/ai-quota-notch-<versão>-x86_64.AppImage
+```
+
+Abra o AppImage com o Gear Lever: ele move o arquivo para `~/AppImages` e cria o atalho no menu de aplicativos. A extensão `ai-notch-helper@guepardosys` continua necessária (passos acima). Abrir o app pelo menu com ele já aberto traz o notch de volta. **Iniciar com o sistema** grava `~/.config/autostart/ai-quota-notch.desktop` e o mantém apontando para o AppImage atual.
+
 Em teste: a barra superior pode ficar por cima do notch. Veja `docs/plans/linux-electron-posicionador.md`.
 
 No Linux, a janela recebe o mouse diretamente e acompanha o tamanho do widget durante a expansão. Sem sombra no painel aberto, porque a janela a cortaria. `bun run icon` também gera `assets/tray-linux.png`.
