@@ -52,7 +52,25 @@ export default class AiNotchHelper extends Extension {
         };
     }
 
+    // A dock só refaz a lista quando o estado de um app muda. Fechar a janela de
+    // Configurações não muda o estado (o app segue em execução), e o ícone ficaria
+    // na dock. Avisamos a mudança para a dock aplicar o filtro de novo.
+    _refreshDock(app) {
+        if (!app) return;
+        (this._dockPending ??= new Set()).add(app);
+        this._dockIdle ??= GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            const apps = this._dockPending;
+            this._dockIdle = null; this._dockPending = null;
+            for (const a of apps ?? [])
+                if (this._dockFilter && a.get_windows().some(w => this._isNotch(w)))
+                    Shell.AppSystem.get_default().emit('app-state-changed', a);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
     disable() {
+        if (this._dockIdle) GLib.source_remove(this._dockIdle);
+        this._dockIdle = null; this._dockPending = null;
         if (this._dockFilter) this._dockFilter.on = false;
         this._dockFilter = null;
         if (this._reloadTimer) GLib.source_remove(this._reloadTimer);
@@ -102,14 +120,21 @@ export default class AiNotchHelper extends Extension {
 
     _track(win) {
         if (!win || this._observed.has(win)) return;
+        // Guardado agora: depois de fechada, a janela já não diz de qual app era.
+        let app = Shell.WindowTracker.get_default().get_window_app(win);
+        const appOf = () => (app ??= Shell.WindowTracker.get_default().get_window_app(win));
         const ids = [
             win.connect('notify::fullscreen', () => this._syncFullscreen()),
             win.connect('notify::minimized', () => this._syncFullscreen()),
             win.connect('workspace-changed', () => this._syncFullscreen()),
-            win.connect('unmanaged', () => { this._observed?.delete(win); this._syncFullscreen(); }),
-            win.connect('notify::title', () => { if (this._isNotch(win) && !this._tracked.has(win)) this._adopt(win); }),
+            win.connect('unmanaged', () => { this._observed?.delete(win); this._syncFullscreen(); this._refreshDock(appOf()); }),
+            win.connect('notify::title', () => {
+                if (this._isNotch(win) && !this._tracked.has(win)) this._adopt(win);
+                this._refreshDock(appOf());
+            }),
         ];
         this._observed.set(win, ids);
+        this._refreshDock(appOf());
         if (this._isNotch(win)) return this._adopt(win);
         this._syncFullscreen();
     }
