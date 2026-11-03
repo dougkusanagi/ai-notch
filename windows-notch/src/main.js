@@ -156,6 +156,7 @@ function setPref(patch) {
   const hidden = !wins.size;
   savePrefs({ ...loadPrefs(), ...patch });
   syncWindows();
+  updateTrayMenu();
   if (hidden && wins.size) refresh();
 }
 
@@ -208,10 +209,14 @@ const menuTemplate = () => [
   { label: 'Centralizar no monitor', click: () => setPref({ offsets: {} }) },
   { label: 'Fixar posição', type: 'checkbox', checked: loadPrefs().locked, click: item => setPref({ locked: item.checked }) },
   { label: LINUX ? 'Iniciar com o sistema' : 'Iniciar com o Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
-    click: item => app.setLoginItemSettings({ openAtLogin: item.checked }) },
+    click: item => { app.setLoginItemSettings({ openAtLogin: item.checked }); updateTrayMenu(); } },
   { type: 'separator' },
   { label: 'Sair', click: () => app.quit() },
 ];
+
+function updateTrayMenu() {
+  if (LINUX && tray) tray.setContextMenu(Menu.buildFromTemplate(menuTemplate()));
+}
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -238,7 +243,8 @@ function start() {
     if (!wins.size) setPref({ displays: null }); else for (const w of wins.values()) w.showInactive();
     refresh(true);
   });
-  tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate(menuTemplate())));
+  if (LINUX) updateTrayMenu();
+  else tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate(menuTemplate())));
 
   ipcMain.on('interactive', (e, on) => winOf(e)?.setIgnoreMouseEvents(!on, { forward: true }));
   ipcMain.on('drag', (e, dx) => { const w = winOf(e); if (w && Number.isFinite(dx)) moveBy(w, dx); });
