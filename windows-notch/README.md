@@ -43,6 +43,7 @@ Preferências (tema) ficam em `%APPDATA%\ai-quota-notch\prefs.json`.
 ## Linux (Ubuntu/GNOME, protótipo)
 
 No Wayland o app não pode posicionar a própria janela. Uma extensão pequena, `ai-notch-helper@guepardosys`, lê `$XDG_RUNTIME_DIR/ai-notch/layout.json` (gravado pelo app) e posiciona as janelas `ai-notch:*`, deixando-as por cima e em todos os workspaces. A extensão `ai-usage@guepardosys` não muda.
+Quando uma janela entra em tela cheia, o notch daquele monitor fica oculto até a saída desse modo.
 
 ```bash
 mkdir -p ~/.local/share/gnome-shell/extensions

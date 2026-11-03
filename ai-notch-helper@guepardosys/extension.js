@@ -9,6 +9,7 @@ export default class AiNotchHelper extends Extension {
         this._layout = new Map(); // título -> {x, y, width, height}
         this._tracked = new Map(); // MetaWindow -> ids de sinais
         this._applying = new Set();
+        this._hiddenForFullscreen = new Set();
         this._file = Gio.File.new_for_path(
             GLib.build_filenamev([GLib.get_user_runtime_dir(), 'ai-notch', 'layout.json']));
         this._dir = this._file.get_parent();
@@ -19,6 +20,8 @@ export default class AiNotchHelper extends Extension {
             if (file.get_basename() === 'layout.json') this._reload();
         });
         this._createdId = global.display.connect('window-created', (_d, win) => this._track(win));
+        this._fullscreenId = global.display.connect('in-fullscreen-changed', () => this._syncFullscreen());
+        this._workspaceId = global.workspace_manager.connect('active-workspace-changed', () => this._syncFullscreen());
 
         this._reload();
         for (const actor of global.get_window_actors())
@@ -31,13 +34,17 @@ export default class AiNotchHelper extends Extension {
         this._monitor?.disconnect(this._monitorId);
         this._monitor?.cancel();
         global.display.disconnect(this._createdId);
+        global.display.disconnect(this._fullscreenId);
+        global.workspace_manager.disconnect(this._workspaceId);
         for (const [win, ids] of this._tracked) {
             for (const id of ids) win.disconnect(id);
+            if (this._hiddenForFullscreen.has(win)) win.unminimize();
             try { win.unmake_above(); win.unstick(); } catch (_e) { /* janela já fechada */ }
         }
         this._tracked = null;
         this._layout = null;
         this._applying = null;
+        this._hiddenForFullscreen = null;
         this._monitor = null;
         this._file = null;
         this._dir = null;
@@ -75,10 +82,23 @@ export default class AiNotchHelper extends Extension {
         const ids = [
             win.connect('position-changed', () => this._apply(win)),
             win.connect('size-changed', () => this._apply(win)),
-            win.connect('unmanaged', () => this._tracked?.delete(win)),
+            win.connect('unmanaged', () => { this._tracked?.delete(win); this._hiddenForFullscreen?.delete(win); }),
         ];
         this._tracked.set(win, ids);
         this._apply(win);
+        this._syncFullscreen();
+    }
+
+    _syncFullscreen() {
+        for (const win of this._tracked.keys()) {
+            const fullscreen = global.display.get_monitor_in_fullscreen(win.get_monitor());
+            if (fullscreen && !win.minimized) {
+                this._hiddenForFullscreen.add(win);
+                win.minimize();
+            } else if (!fullscreen && this._hiddenForFullscreen.delete(win)) {
+                win.unminimize();
+            }
+        }
     }
 
     _apply(win) {
@@ -94,6 +114,7 @@ export default class AiNotchHelper extends Extension {
                 win.move_resize_frame(false, spec.x, spec.y, spec.width, spec.height);
             else if (r.x !== spec.x || r.y !== spec.y)
                 win.move_frame(false, spec.x, spec.y);
+            this._syncFullscreen();
         } finally {
             GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
                 this._applying?.delete(win);
