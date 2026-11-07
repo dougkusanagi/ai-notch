@@ -13,7 +13,8 @@
     "test": "bun test",
     "dist": "electron-builder --win --x64",
     "icon": "python3 scripts/make-icon.py",
-    "dist:linux": "electron-builder --linux AppImage --x64"
+    "dist:linux": "electron-builder --linux AppImage --x64",
+    "desktop:update": "bun scripts/update.mjs"
   },
   "trustedDependencies": [
     "electron"

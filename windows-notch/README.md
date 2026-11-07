@@ -68,3 +68,11 @@ Abra o AppImage com o Gear Lever: ele move o arquivo para `~/AppImages` e cria o
 Em teste: a barra superior pode ficar por cima do notch. Veja `docs/plans/linux-electron-posicionador.md`.
 
 No Linux, a janela recebe o mouse diretamente e acompanha o tamanho do widget durante a expansão. Sem sombra no painel aberto, porque a janela a cortaria. `bun run icon` também gera `assets/tray-linux.png`.
+
+### Atualizar a versão instalada
+
+```bash
+bun run desktop:update   # na raiz do repositório (ou em windows-notch/)
+```
+
+Gera e instala a versão atual no sistema em que roda: no Windows, o instalador NSIS em modo silencioso; no Ubuntu, o AppImage em `~/AppImages` (remove versões antigas). Fecha o notch em execução antes. Para atualizar os dois, rode o comando em cada sistema.
