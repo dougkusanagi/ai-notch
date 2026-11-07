@@ -39,7 +39,7 @@ bun install
 bun run dist   # gera out\AI Quota Notch Setup 0.1.0.exe (NSIS, por usuário, sem admin)
 ```
 
-O instalador também pode ser gerado no Linux (precisa de acesso à internet na primeira vez). O app não é assinado, então o SmartScreen avisa na primeira execução. O ícone na bandeja é o plano B se o notch ficar escondido: clique atualiza, botão direito abre o menu (Atualizar, Iniciar com o Windows, Sair). `bun run icon` regenera `assets/icon.*` (precisa de Python com Pillow).
+O instalador também pode ser gerado no Linux (precisa de acesso à internet na primeira vez). O app não é assinado, então o SmartScreen avisa na primeira execução. O ícone na bandeja é o plano B se o notch ficar escondido: clique atualiza, botão direito abre o menu (Atualizar, Iniciar com o Windows, Sair). `bun run icon` regenera `assets/icon.*` (precisa do `uv`).
 
 Preferências e contas (sem credenciais) ficam em `%APPDATA%\ai-quota-notch\prefs.json`.
 

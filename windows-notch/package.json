@@ -12,7 +12,7 @@
     "demo:multi": "electron . --demo=2",
     "test": "bun test",
     "dist": "electron-builder --win --x64",
-    "icon": "python3 scripts/make-icon.py",
+    "icon": "uv run --with pillow scripts/make-icon.py",
     "dist:linux": "electron-builder --linux AppImage --x64",
     "desktop:update": "bun scripts/update.mjs"
   },

@@ -26,6 +26,8 @@ if (process.platform === 'win32') {
   if (!setup) { console.error('Instalador não encontrado em out/.'); process.exit(1); }
   run('taskkill', ['/IM', 'AI Quota Notch.exe', '/F'], { stdio: 'ignore' });
   must(join(out, setup), ['/S']);
+  // O Windows guarda o ícone antigo do atalho em cache; força a releitura.
+  run('ie4uinit.exe', ['-show'], { stdio: 'ignore' });
   console.log(`Instalado: ${setup}`);
 } else if (process.platform === 'linux') {
   must('bun', ['run', 'dist:linux']);
