@@ -16,13 +16,13 @@ h1 { font-size: 17px; font-weight: 600; }
 .show { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
 /* Miniatura do monitor com o notch na borda escolhida */
-.preview { position: relative; height: 84px; border-radius: 6px; background: var(--screen); border: 1px solid var(--line); }
-.preview i { position: absolute; background: var(--fg); opacity: .85; border-radius: 3px; transition: all .2s; }
-.preview.off i { display: none; }
-.preview i.top { top: 0; left: 50%; width: 34%; height: 8px; transform: translateX(-50%); border-radius: 0 0 6px 6px; }
-.preview i.bottom { bottom: 0; left: 50%; width: 34%; height: 8px; transform: translateX(-50%); border-radius: 6px 6px 0 0; }
-.preview i.left { left: 0; top: 50%; height: 34%; width: 8px; transform: translateY(-50%); border-radius: 0 6px 6px 0; }
-.preview i.right { right: 0; top: 50%; height: 34%; width: 8px; transform: translateY(-50%); border-radius: 6px 0 0 6px; }
+.preview-mon { position: relative; height: 84px; border-radius: 6px; background: var(--screen); border: 1px solid var(--line); }
+.preview-mon i { position: absolute; background: var(--fg); opacity: .85; border-radius: 3px; transition: all .2s; }
+.preview-mon.off i { display: none; }
+.preview-mon i.top { top: 0; left: 50%; width: 34%; height: 8px; transform: translateX(-50%); border-radius: 0 0 6px 6px; }
+.preview-mon i.bottom { bottom: 0; left: 50%; width: 34%; height: 8px; transform: translateX(-50%); border-radius: 6px 6px 0 0; }
+.preview-mon i.left { left: 0; top: 50%; height: 34%; width: 8px; transform: translateY(-50%); border-radius: 0 6px 6px 0; }
+.preview-mon i.right { right: 0; top: 50%; height: 34%; width: 8px; transform: translateY(-50%); border-radius: 6px 0 0 6px; }
 .edges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 button { font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px;
   padding: 5px 4px; cursor: pointer; }
@@ -33,3 +33,57 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .center { justify-self: start; }
 .lock { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---- Abas, ajustes e contas ---- */
+main { max-width: 720px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { border: 0; border-radius: 8px 8px 0 0; padding: 8px 14px; color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
+[hidden] { display: none !important; }
+section[role=tabpanel] { display: grid; gap: 12px; align-content: start; }
+.sec { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 6px; }
+.sub { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.group { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.group > * + * { border-top: 1px solid var(--line); }
+.line { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px; cursor: default; }
+.line > span { display: grid; gap: 2px; }
+small { color: var(--muted); font-size: 11.5px; font-weight: 400; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--line); flex: none; }
+.seg button { border: 0; padding: 5px 12px; }
+.seg button[aria-checked="true"] { background: var(--accent); color: #fff; }
+.seg.wide { flex: 0 0 auto; }
+.acct { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--card); }
+.accts .acct { background: transparent; }
+.acct.dim .names, .acct.dim .badge { opacity: .55; }
+.acct.preview { border: 1px solid var(--line); border-radius: 12px; }
+.badge { display: grid; place-items: center; min-width: 34px; height: 34px; padding: 0 6px; border-radius: 10px; color: #fff;
+  font-weight: 700; font-size: 12px; flex: none; }
+.names { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.names strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.names small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acts { display: flex; gap: 4px; flex: none; }
+.icon { width: 30px; padding: 5px 0; }
+.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 7px 14px; }
+.primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--accent); }
+.add { justify-self: start; margin-top: 10px; }
+#list { display: grid; }
+.stack { display: grid; }
+.field { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 12px; padding: 8px 14px; }
+.field.with-btn { grid-template-columns: 150px 1fr auto; }
+.field input[type=text] { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+.login { padding: 8px 14px; display: grid; gap: 6px; }
+.login-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.login code { display: block; user-select: all; font: 12px/1.5 Consolas, "Cascadia Mono", monospace; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 9px; overflow-wrap: anywhere; }
+button.small { padding: 3px 10px; font-size: 12px; }
+.palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+.swatch { width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+.swatch[aria-pressed="true"] { border-color: var(--fg); box-shadow: 0 0 0 2px var(--bg) inset; }
+.error { color: #d70015; font-size: 12.5px; }
+@media (prefers-color-scheme: dark) { .error { color: #ff6961; } }
+.form-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
+.form-actions .grow { flex: 1; }
+.confirm { flex: 1 1 100%; font-size: 12.5px; }
+.danger-outline { color: #d70015; border-color: currentColor; }
+.danger { background: #d70015; border-color: #d70015; color: #fff; }
+@media (max-width: 560px) { .field, .field.with-btn { grid-template-columns: 1fr; gap: 6px; } .acct { flex-wrap: wrap; } }

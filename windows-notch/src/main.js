@@ -1,9 +1,12 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, nativeTheme, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { fetchAll, demo, backoffMs } = require('./usage');
+const { fetchAll, demo, discoverProfiles } = require('./usage');
 const { buildLayout, titleFor, writeLayout } = require('./linux-layout');
 const linuxDesktop = require('./linux-desktop');
+const accountsLib = require('./accounts');
+const { shouldSendResetMessage, sendResetMessage } = require('./reset-message');
+const { POLICY, ACCOUNT_GAP_MS, newState, dueAt, canFetch, afterFetch, isStale } = require('./schedule');
 
 const LINUX = process.platform === 'linux';
 // Wayland nativo no Linux; a extensão ai-notch-helper posiciona a janela e a tira do dock.
@@ -25,26 +28,32 @@ function setStartsWithSystem(on) {
   catch (e) { console.error('Falha ao configurar o início com o sistema:', e.message); }
 }
 
+
 const demoArg = process.argv.find(a => a.startsWith('--demo'));
 const DEMO = demoArg ? Number(demoArg.split('=')[1] ?? 1) : 0;
 // Área máxima (painel aberto). O resto é transparente e deixa o mouse passar.
 const W = 460, H = 640;
 const EXPANDED_W = 396; // largura do painel aberto + margem, usada para limitar o arrasto
-const REFRESH_MS = 5 * 60e3;
+const TICK_MS = 15e3;
 const THEMES = ['light', 'dark', 'system'];
 const EDGES = ['top', 'bottom', 'left', 'right'];
 const wins = new Map(); // id do monitor -> janela
-let tray, timer, settingsWin, last = null, failures = 0, backoffUntil = 0;
+let tray, timer, settingsWin, last = null;
 
 const prefsFile = () => path.join(app.getPath('userData'), 'prefs.json');
 // displays: null = só o principal; [] = oculto. edges: posição por monitor (padrão: edge).
-const DEFAULTS = { theme: 'system', displays: null, edge: 'top', edges: {}, locked: false, offsets: {} };
+// accounts: null = ainda não criadas (são geradas a partir dos perfis detectados na primeira execução).
+const DEFAULTS = { theme: 'system', displays: null, edge: 'top', edges: {}, locked: false, offsets: {},
+  accounts: null, resetFormat: '24h', coloredBars: true, resetAttempts: {} };
+const RESET_FORMATS = ['24h', '12h', 'relative'];
 let prefsCache = null;
 function loadPrefs() {
   if (prefsCache) return prefsCache;
   try { prefsCache = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(prefsFile(), 'utf8')) }; }
   catch { prefsCache = { ...DEFAULTS }; }
   if (!EDGES.includes(prefsCache.edge)) prefsCache.edge = 'top';
+  if (!RESET_FORMATS.includes(prefsCache.resetFormat)) prefsCache.resetFormat = '24h';
+  if (prefsCache.accounts !== null) prefsCache.accounts = accountsLib.cleanList(prefsCache.accounts);
   return prefsCache;
 }
 function savePrefs(p) {
@@ -125,7 +134,7 @@ function createWindow(display) {
   if (!LINUX) win.setIgnoreMouseEvents(true, { forward: true });
   place(win, display);
   win.loadFile(path.join(__dirname, 'index.html'));
-  win.once('ready-to-show', () => { win.showInactive(); if (last) win.webContents.send('usage', last); });
+  win.once('ready-to-show', () => { win.showInactive(); if (last) win.webContents.send('usage', view()); });
   win.on('closed', () => { if (wins.get(display.id) === win) wins.delete(display.id); publishLayout(); });
   wins.set(display.id, win);
 }
@@ -163,25 +172,72 @@ function commitDrag() {
   dragOffsets.clear();
 }
 
-async function refresh(force) {
-  if (!wins.size && force !== true) return;
-  // Depois de um 429, nem a atualização manual consulta antes do prazo.
-  if (!DEMO && last && Date.now() < backoffUntil) { broadcast('usage', last); return; }
+// Cada serviço tem o próprio ritmo e a própria espera (ver schedule.js).
+const sched = Object.fromEntries(Object.keys(POLICY).map(p => [p, newState()]));
+let refreshing = false;
+
+// opts.manual: ignora o intervalo mínimo (nunca a espera de um 429).
+// opts.always: consulta mesmo com o notch oculto. opts.only: lista de serviços.
+async function refresh(opts = {}) {
+  if (refreshing || (!wins.size && !opts.always)) return;
+  const now = Date.now();
+  const list = (opts.only ?? Object.keys(POLICY)).filter(p => canFetch(p, sched[p], now, opts.manual));
+  if (!list.length) { if (last) broadcast('usage', view()); return; }
+  refreshing = true;
   broadcast('loading', true);
   try {
-    const accounts = DEMO ? demo(DEMO) : await fetchAll(undefined, last?.accounts);
-    const limited = accounts.filter(a => a.retryAfterMs !== undefined);
-    failures = limited.length ? failures + 1 : 0;
-    backoffUntil = limited.length ? Date.now() + backoffMs(failures, Math.max(...limited.map(a => a.retryAfterMs))) : 0;
-    last = { at: Date.now(), accounts, retryAt: backoffUntil || null };
+    const all = DEMO ? demo(DEMO) : await fetchAll(undefined, last?.accounts, { providers: list, gapMs: ACCOUNT_GAP_MS, accounts: loadPrefs().accounts ?? undefined });
+    const fresh = all.filter(a => list.includes(a.provider)), at = Date.now();
+    for (const p of list) sched[p] = afterFetch(p, sched[p], fresh.filter(a => a.provider === p), at);
+    const retry = Math.max(0, ...Object.values(sched).map(s => s.backoffUntil));
+    last = { at, accounts: [...(last?.accounts ?? []).filter(a => !list.includes(a.provider)), ...fresh], retryAt: retry > at ? retry : null };
+    if (!DEMO) autoResetMessages(fresh, at);
   } catch (e) {
     console.error('Falha ao atualizar:', e.message);
   } finally {
-    if (last) broadcast('usage', last);
+    refreshing = false;
+    if (last) broadcast('usage', view());
     broadcast('loading', false);
   }
 }
 
+// Dados enviados ao notch: só contas cadastradas e visíveis, na ordem da lista, com nome, iniciais e cor atuais.
+const msgStatus = new Map(); // id da conta -> resultado da última mensagem após reset
+function view() {
+  const cfg = loadPrefs().accounts;
+  if (DEMO || !cfg) return last;
+  const byId = new Map(cfg.map((a, i) => [a.id, { ...a, i }]));
+  const accounts = last.accounts.filter(a => byId.get(a.id)?.visible).sort((a, b) => byId.get(a.id).i - byId.get(b.id).i)
+    .map(a => { const c = byId.get(a.id); return { ...a, name: c.name, initials: c.initials, color: c.color, resetMsg: msgStatus.get(a.id) }; });
+  return { ...last, accounts };
+}
+
+// Mensagem após o reset: só para contas com a opção ligada, com dado atual e janela de 5 h livre.
+function autoResetMessages(fresh, now) {
+  const cfg = new Map((loadPrefs().accounts ?? []).map(a => [a.id, a]));
+  for (const a of fresh) {
+    const acc = cfg.get(a.id);
+    if (!acc?.autoResetMessage || !a.ok || a.stale) continue;
+    if (!shouldSendResetMessage(a, loadPrefs().resetAttempts?.[a.id] ?? 0, now)) continue;
+    savePrefs({ ...loadPrefs(), resetAttempts: { ...loadPrefs().resetAttempts, [a.id]: now } });
+    msgStatus.set(a.id, { at: now, sending: true });
+    sendResetMessage(acc)
+      .then(() => msgStatus.set(a.id, { at: Date.now(), ok: true }), e => msgStatus.set(a.id, { at: Date.now(), ok: false, error: e.message }))
+      .finally(() => {
+        if (last) broadcast('usage', view());
+        // A nova janela só aparece no serviço depois de alguns instantes.
+        setTimeout(() => refresh({ only: [acc.provider], always: true }), 90e3);
+      });
+  }
+}
+
+// A cada 15 s vê quais serviços já estão na hora: intervalo, reset conhecido ou fim da espera.
+function tick() {
+  if (!wins.size || refreshing) return;
+  const now = Date.now(), accounts = last?.accounts ?? [];
+  const only = Object.keys(POLICY).filter(p => now >= dueAt(p, sched[p], accounts));
+  if (only.length) refresh({ only });
+}
 function setPref(patch) {
   const hidden = !wins.size;
   savePrefs({ ...loadPrefs(), ...patch });
@@ -190,7 +246,52 @@ function setPref(patch) {
   if (hidden && wins.size) refresh();
 }
 
-// ---- Tela de configuração de monitores e posição ----
+// ---- Contas ----
+async function seedAccounts() {
+  if (loadPrefs().accounts) return;
+  savePrefs({ ...loadPrefs(), accounts: accountsLib.fromProfiles(await discoverProfiles()) });
+}
+
+// Grava a lista. Contas novas ou com outro serviço/diretório saem do cache e são consultadas na hora.
+function setAccounts(list) {
+  const prev = new Map((loadPrefs().accounts ?? []).map(a => [a.id, a]));
+  savePrefs({ ...loadPrefs(), accounts: list });
+  if (DEMO) return;
+  const same = a => { const p = prev.get(a.id), n = list.find(x => x.id === a.id); return n?.visible && p && p.provider === n.provider && p.profilePath === n.profilePath; };
+  if (last) last = { ...last, accounts: last.accounts.filter(same) };
+  if (last) broadcast('usage', view());
+  if (list.some(a => a.visible && !last?.accounts.some(x => x.id === a.id))) refresh({ manual: true, always: true });
+}
+
+function accountsDo(op) {
+  const list = loadPrefs().accounts ?? [];
+  if (op.type === 'put') setAccounts(accountsLib.put(list, op.account));
+  else if (op.type === 'remove') setAccounts(accountsLib.remove(list, op.id));
+  else if (op.type === 'move') setAccounts(accountsLib.move(list, op.id, op.offset < 0 ? -1 : 1));
+  else if (op.type === 'visible') {
+    const a = list.find(x => x.id === op.id);
+    if (a) setAccounts(accountsLib.put(list, { ...a, visible: op.visible === true }));
+  }
+}
+
+function applyTheme(theme) {
+  if (!THEMES.includes(theme)) return;
+  nativeTheme.themeSource = theme;
+  savePrefs({ ...loadPrefs(), theme });
+  for (const [id, w] of wins) w.webContents.send('prefs', viewPrefs(id));
+}
+
+// ---- Tela de configurações ----
+function settingsState() {
+  const p = loadPrefs();
+  return {
+    ...monitorsState(),
+    prefs: { theme: p.theme, resetFormat: p.resetFormat, coloredBars: p.coloredBars, autoStart: startsWithSystem() },
+    accounts: p.accounts ?? [],
+    defaults: { prompt: accountsLib.DEFAULT_RESET_PROMPT, dirs: accountsLib.DEFAULT_DIR, palette: accountsLib.PALETTE },
+  };
+}
+
 function monitorsState() {
   const chosen = selectedIds(), primary = screen.getPrimaryDisplay().id;
   const all = screen.getAllDisplays().slice().sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
@@ -206,6 +307,10 @@ function monitorsState() {
 function applySetting(s) {
   const prefs = loadPrefs();
   if (typeof s.locked === 'boolean') return setPref({ locked: s.locked });
+  if (s.theme) return applyTheme(s.theme);
+  if (RESET_FORMATS.includes(s.resetFormat)) return setPref({ resetFormat: s.resetFormat });
+  if (typeof s.coloredBars === 'boolean') return setPref({ coloredBars: s.coloredBars });
+  if (typeof s.autoStart === 'boolean') { setStartsWithSystem(s.autoStart); updateTrayMenu(); return; }
   const id = Number(s.id);
   if (!screen.getAllDisplays().some(d => d.id === id)) return;
   if (typeof s.show === 'boolean') {
@@ -220,21 +325,22 @@ function applySetting(s) {
   }
 }
 
-function openSettings() {
-  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); settingsWin.focus(); return; }
+function openSettings(tab = 'ajustes') {
+  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); settingsWin.focus(); settingsWin.webContents.send('tab', tab); return; }
   settingsWin = new BrowserWindow({
-    width: 620, height: 460, minWidth: 460, minHeight: 360, title: 'AI Quota Notch · Configurações', skipTaskbar: false,
+    width: 700, height: 680, minWidth: 480, minHeight: 420, title: 'AI Quota Notch · Configurações', skipTaskbar: false,
     autoHideMenuBar: true, backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f5f5f7',
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, sandbox: true },
   });
   settingsWin.setMenu(null);
-  settingsWin.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWin.loadFile(path.join(__dirname, 'settings.html'), { hash: tab });
   settingsWin.on('closed', () => { settingsWin = null; });
 }
 
 const menuTemplate = () => [
-  { label: 'Atualizar agora', click: () => refresh(true) },
-  { label: 'Configurações…', click: openSettings },
+  { label: 'Atualizar agora', click: () => refresh({ manual: true, always: true }) },
+  { label: 'Configurações e contas…', click: () => openSettings('ajustes') },
+  { label: 'Monitores e posição…', click: () => openSettings('monitores') },
   // Zera o deslocamento nos dois eixos, então vale para topo, base e laterais.
   { label: 'Centralizar no monitor', click: () => setPref({ offsets: {} }) },
   { label: 'Fixar posição', type: 'checkbox', checked: loadPrefs().locked, click: item => setPref({ locked: item.checked }) },
@@ -258,23 +364,24 @@ else {
 // Oculto em todos os monitores: traz o notch de volta no principal.
 function showNotch() {
   if (!wins.size) setPref({ displays: null }); else for (const w of wins.values()) w.showInactive();
-  refresh(true);
+  refresh({ manual: true, always: true });
 }
 
-function start() {
+async function start() {
   if (LINUX) {
     try { linuxDesktop.refreshAutostart(launchCommand()); }
     catch (e) { console.error('Falha ao atualizar o início com o sistema:', e.message); }
   }
+  await seedAccounts();
   nativeTheme.themeSource = loadPrefs().theme;
   syncWindows();
   refresh();
   for (const ev of ['display-metrics-changed', 'display-added', 'display-removed']) screen.on(ev, syncWindows);
-  timer = setInterval(refresh, REFRESH_MS);
+  timer = setInterval(tick, TICK_MS);
   // O Windows pode trazer a barra de tarefas para a frente das janelas fixas; reafirma o topo.
   if (!LINUX) keepOnTop = setInterval(() => { for (const w of wins.values()) if (!w.isDestroyed()) w.moveTop(); }, 3000);
   // Depois de suspender ou desbloquear, a rede pode demorar um pouco a voltar.
-  for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => setTimeout(refresh, 5000));
+  for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => setTimeout(() => refresh(), 5000));
 
   // A bandeja é o plano B caso o notch fique escondido ou oculto.
   // No Linux o fundo escuro do ícone some na barra do GNOME; lá vale a versão só com os anéis.
@@ -300,22 +407,28 @@ function start() {
     const w = winOf(e);
     if (w && !loadPrefs().locked) applySetting({ id: w.displayId, center: true });
   });
-  ipcMain.on('refresh', () => refresh());
+  ipcMain.on('refresh', () => refresh({ manual: true }));
   ipcMain.on('open-settings', openSettings);
+  // Ao abrir o painel, atualiza só os serviços com dado mais velho que STALE_MS.
+  ipcMain.on('opened', () => refresh({ only: Object.keys(POLICY).filter(p => isStale(sched[p], Date.now())) }));
   ipcMain.handle('prefs', e => viewPrefs(winOf(e)?.displayId));
-  ipcMain.on('theme', (_e, theme) => {
-    if (!THEMES.includes(theme)) return;
-    nativeTheme.themeSource = theme;
-    savePrefs({ ...loadPrefs(), theme });
-  });
+  ipcMain.on('theme', (_e, theme) => applyTheme(theme));
   // Enquanto o menu nativo está aberto, o notch fica expandido mesmo com o mouse fora dele.
   ipcMain.on('menu', e => {
     const w = winOf(e);
     w?.webContents.send('pin', true);
     Menu.buildFromTemplate(menuTemplate()).popup({ window: w, callback: () => { if (!w.isDestroyed()) w.webContents.send('pin', false); } });
   });
-  ipcMain.handle('settings:get', () => monitorsState());
-  ipcMain.handle('settings:set', (_e, s) => { applySetting(s ?? {}); return monitorsState(); });
+  ipcMain.handle('settings:get', () => settingsState());
+  ipcMain.handle('settings:set', (_e, s) => { applySetting(s ?? {}); return settingsState(); });
+  ipcMain.handle('accounts:do', (_e, op) => {
+    if (op?.type === 'login') return { login: accountsLib.loginCommand(op.provider, op.dir) };
+    try { accountsDo(op ?? {}); return settingsState(); } catch (e) { return { ...settingsState(), error: e.message }; }
+  });
+  ipcMain.handle('accounts:pick', async () => {
+    const r = await dialog.showOpenDialog(settingsWin, { properties: ['openDirectory', 'createDirectory'], title: 'Escolher o diretório do perfil' });
+    return r.canceled ? null : r.filePaths[0];
+  });
 }
 
 let keepOnTop;

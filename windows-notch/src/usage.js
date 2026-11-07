@@ -2,6 +2,7 @@
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { expandPath } = require('./accounts');
 
 const clamp = v => Math.max(0, Math.min(100, v));
 
@@ -140,17 +141,38 @@ function backoffMs(failures, retryAfterMs = 0) {
   return Math.max(retryAfterMs, Math.min(60, 5 * 2 ** Math.max(0, failures - 1)) * 60e3);
 }
 
-async function fetchAll(home, previous = []) {
-  const profiles = await discoverProfiles(home);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// `providers` limita a consulta a alguns serviços. Serviços diferentes rodam em paralelo; as
+// contas do mesmo serviço rodam em sequência, com pausa de `gapMs` (±50%) entre elas.
+// `accounts` (lista cadastrada) substitui a detecção automática; contas ocultas não são consultadas.
+async function fetchAll(home, previous = [], { providers, gapMs = 0, accounts } = {}) {
+  const found = accounts
+    ? accounts.filter(a => a.visible !== false).flatMap(a => {
+      try { return [{ ...a, dir: expandPath(a.profilePath, home) }]; } catch { return []; }
+    })
+    : await discoverProfiles(home);
+  const profiles = found.filter(p => !providers || providers.includes(p.provider));
   const before = new Map(previous.map(a => [a.id, a]));
-  return Promise.all(profiles.map(async ({ provider, dir, name, initials }) => {
-    const base = { id: `${provider}:${dir}`, provider, name, initials };
+  const one = async ({ id, provider, dir, name, initials, color }) => {
+    const base = { id: id ?? `${provider}:${dir}`, provider, name, initials, ...(color && { color }) };
     try { return { ...base, ok: true, fetchedAt: Date.now(), ...(await PROVIDERS[provider].read(dir)) }; }
     catch (e) {
       const stale = keepStale(before.get(base.id), e.message, e.retryAfterMs);
       return stale ?? { ...base, ok: false, error: e.message, retryAfterMs: e.retryAfterMs };
     }
+  };
+  const groups = new Map();
+  for (const p of profiles) groups.set(p.provider, [...(groups.get(p.provider) ?? []), p]);
+  const done = await Promise.all([...groups.values()].map(async list => {
+    const out = [];
+    for (const [i, p] of list.entries()) {
+      if (i && gapMs) await sleep(gapMs * (0.5 + Math.random()));
+      out.push(await one(p));
+    }
+    return out;
   }));
+  return done.flat();
 }
 
 module.exports = { keepStale, backoffMs, normalizeClaude, normalizeOpenAI, resetMs, profileName, discoverProfiles, fetchAll, demo };

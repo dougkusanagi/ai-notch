@@ -9,9 +9,36 @@
 <body>
 <main>
   <h1>Configurações</h1>
-  <p class="hint">Marque os monitores que mostram o notch e escolha a borda de cada um. Para ajustar o lugar exato, arraste o notch.</p>
-  <div id="monitors" class="monitors"></div>
-  <label class="lock"><input type="checkbox" id="locked"> Fixar posição (impede arrastar sem querer)</label>
+  <div class="tabs" role="tablist" aria-label="Seções">
+    <button role="tab" data-tab="ajustes" id="t-ajustes" aria-controls="tab-ajustes">Ajustes</button>
+    <button role="tab" data-tab="contas" id="t-contas" aria-controls="tab-contas">Contas</button>
+    <button role="tab" data-tab="monitores" id="t-monitores" aria-controls="tab-monitores">Monitores e posição</button>
+  </div>
+
+  <section id="tab-ajustes" role="tabpanel" aria-labelledby="t-ajustes">
+    <h2 class="sec">Aparência</h2>
+    <div class="group">
+      <div class="line"><span>Tema</span><div class="seg" id="theme" role="radiogroup" aria-label="Tema"></div></div>
+      <div class="line"><span>Horário do reset</span><div class="seg" id="resetFormat" role="radiogroup" aria-label="Formato do reset"></div></div>
+      <label class="line"><span>Barras coloridas<small>Verde, âmbar e vermelho conforme o que resta</small></span><input type="checkbox" id="coloredBars"></label>
+    </div>
+    <h2 class="sec">Sistema</h2>
+    <div class="group">
+      <label class="line"><span>Iniciar com o Windows</span><input type="checkbox" id="autoStart"></label>
+    </div>
+    <p class="hint">Os dados são atualizados sozinhos, no ritmo de cada serviço (Claude e Codex), para respeitar os limites de consulta.</p>
+  </section>
+
+  <section id="tab-contas" role="tabpanel" aria-labelledby="t-contas">
+    <div id="list"></div>
+    <form id="editor" hidden novalidate></form>
+  </section>
+
+  <section id="tab-monitores" role="tabpanel" aria-labelledby="t-monitores">
+    <p class="hint">Marque os monitores que mostram o notch e escolha a borda de cada um. Para ajustar o lugar exato, arraste o notch.</p>
+    <div id="monitors" class="monitors"></div>
+    <label class="lock"><input type="checkbox" id="locked"> Fixar posição (impede arrastar sem querer)</label>
+  </section>
 </main>
 <script src="settings.js"></script>
 </body>
