@@ -109,7 +109,7 @@ test('Antigravity: normaliza buckets por família e extrai token base64/JSON', (
       { modelId: 'claude-sonnet-4-5', remainingFraction: 0.6, resetTime: '2026-11-25T18:00:00Z' },
     ],
   });
-  expect(r.windows.map(w => [w.label, w.remaining])).toEqual([['Gemini Pro', 45], ['Gemini Flash', 90], ['Claude', 60]]);
+  expect(r.windows.map(w => [w.label, w.remaining])).toEqual([['Pro', 45], ['Flash', 90], ['Claude', 60]]);
   expect(() => normalizeAntigravity({})).toThrow('Antigravity');
   const b64 = Buffer.from('\x0a\x10ya29.test_token_123\x12\x00', 'latin1').toString('base64');
   expect(extractAntigravityToken(b64)).toBe('ya29.test_token_123');
@@ -122,10 +122,11 @@ test('Antigravity: normaliza o GetUserStatus do servidor local', () => {
   const reset = '2026-11-25T18:00:00Z';
   const r = normalizeAntigravity({ userStatus: { cascadeModelConfigData: { clientModelConfigs: [
     { label: 'Gemini 4 Neon (High)', modelId: 'gemini-4-neon-high', quotaInfo: { remainingFraction: 0.64, resetTime: reset } },
-    { label: 'Gemini 3.8 Flash (Low)', modelId: 'gemini-3.8-flash-low', quotaInfo: { remainingFraction: 0.5, resetTime: reset } },
+    { label: 'Gemini 3.8 Flash (Low)', modelId: 'gemini-3.8-flash-low', quotaInfo: { remainingFraction: 0.64, resetTime: reset } },
     { label: 'Claude Opus 5.5 (High)', modelId: 'claude-opus-5-5-high', quotaInfo: { remainingFraction: 1, resetTime: reset } },
+    { label: 'GPT-OSS 120B (Medium)', modelId: 'gpt-oss-120b-medium', quotaInfo: { remainingFraction: 1, resetTime: reset } },
     { label: 'Sem cota', modelId: 'x' },
   ] } } });
-  expect(r.windows.map(w => [w.label, w.remaining])).toEqual([['Gemini Pro', 64], ['Gemini Flash', 50], ['Claude', 100]]);
+  expect(r.windows.map(w => [w.label, w.remaining])).toEqual([['Gemini', 64], ['Claude + GPT-OSS', 100]]);
   expect(r.windows[0].reset).toBe(Date.parse(reset));
 });

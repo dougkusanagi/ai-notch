@@ -119,6 +119,7 @@ function antigravityGroupLabel(modelId) {
   const id = String(modelId ?? '').toLowerCase();
   if (id.includes('claude')) return 'Claude';
   if (id.includes('flash')) return 'Gemini Flash';
+  if (id.includes('gpt')) return 'GPT-OSS';
   if (id.includes('pro') || id.includes('gemini')) return 'Gemini Pro';
   return modelId ? String(modelId).slice(0, 18) : 'Cota';
 }
@@ -139,7 +140,18 @@ function normalizeAntigravity(raw) {
       grouped.set(label, { label, minutes: 300, remaining, reset });
     }
   }
-  const windows = [...grouped.values()].slice(0, 3);
+  // Famílias com a mesma cota (mesmo restante e renovação) viram uma linha só: Pro e Flash dividem a cota hoje.
+  const merged = new Map();
+  for (const w of grouped.values()) {
+    const key = `${w.remaining}|${w.reset}`;
+    const prev = merged.get(key);
+    if (prev) prev.labels.push(w.label); else merged.set(key, { ...w, labels: [w.label] });
+  }
+  const windows = [...merged.values()].slice(0, 3).map(({ labels, ...w }) => ({
+    ...w,
+    label: labels.length > 1 && labels.every(l => l.startsWith('Gemini')) ? 'Gemini'
+      : labels.map(l => l.replace(/^Gemini /, '')).join(' + '),
+  }));
   if (!windows.length) throw new Error('O Antigravity não informou limites de uso.');
   return { windows };
 }

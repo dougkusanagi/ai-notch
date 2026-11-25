@@ -100,8 +100,10 @@ body {
 .badge { display: grid; place-items: center; min-width: 20px; height: 16px; padding: 0 4px; border-radius: 5px;
   background: var(--hover); font: 700 9px/1 "Segoe UI", sans-serif; letter-spacing: .2px; }
 .acc-name { font-weight: 600; font-size: 11.5px; }
-.row { display: grid; grid-template-columns: 46px 1fr 34px 74px; align-items: center; gap: 10px; }
-.row .lbl { color: var(--muted); }
+.row { display: grid; grid-template-columns: var(--lbl, 46px) 1fr 34px 74px; align-items: center; gap: 10px; }
+/* Antigravity: rótulos são nomes de modelos, mais longos que 5h/Semana. */
+.account[data-p="antigravity"] { --lbl: 104px; }
+.row .lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .pct { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 .row .reset { color: var(--muted); font-size: 10.5px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bar { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; position: relative; }

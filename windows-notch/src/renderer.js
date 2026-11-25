@@ -109,7 +109,10 @@ function windowRow(w) {
   bar.append(fill);
   const reset = el('span', 'reset', resetText(w));
   row.title = resetTitle(w);
-  row.append(el('span', 'lbl', w.minutes === 300 ? '5h' : w.minutes === 10080 ? 'Semana' : w.label), bar, el('span', 'pct', `${r}%`), reset);
+  // Rótulos de tempo encurtados; os demais (ex.: modelos do Antigravity) usam o nome informado.
+  const lbl = el('span', 'lbl', { '5 horas': '5h', Semanal: 'Semana' }[w.label] ?? w.label);
+  lbl.title = w.label;
+  row.append(lbl, bar, el('span', 'pct', `${r}%`), reset);
   return row;
 }
 
@@ -132,6 +135,7 @@ function renderPanel(byProv) {
     sec.append(head);
     for (const a of list) {
       const acc = el('div', 'account');
+      acc.dataset.p = a.provider;
       if (multi) {
         const ah = el('div', 'acc-head');
         const badge = el('span', 'badge', a.initials);
