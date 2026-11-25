@@ -23,7 +23,11 @@ export default class AiNotchHelper extends Extension {
         });
         this._createdId = global.display.connect('window-created', (_d, win) => this._track(win));
         this._fullscreenId = global.display.connect('in-fullscreen-changed', () => this._syncFullscreen());
-        this._workspaceId = global.workspace_manager.connect('active-workspace-changed', () => this._syncFullscreen());
+        this._workareasId = global.display.connect('workareas-changed', () => this._reapplyAll());
+        this._workspaceId = global.workspace_manager.connect('active-workspace-changed', () => {
+            this._syncFullscreen();
+            this._reapplyAll();
+        });
 
         this._hideFromDock();
         this._reload();
@@ -79,6 +83,7 @@ export default class AiNotchHelper extends Extension {
         this._monitor?.cancel();
         global.display.disconnect(this._createdId);
         global.display.disconnect(this._fullscreenId);
+        global.display.disconnect(this._workareasId);
         global.workspace_manager.disconnect(this._workspaceId);
         for (const [win, ids] of this._observed)
             for (const id of ids) win.disconnect(id);
@@ -169,6 +174,11 @@ export default class AiNotchHelper extends Extension {
         }
     }
 
+    _reapplyAll() {
+        if (!this._tracked) return;
+        for (const win of this._tracked.keys()) this._apply(win);
+    }
+
     _apply(win) {
         if (this._applying.has(win)) return; // evita laço com position-changed
         const spec = this._layout.get(win.get_title());
@@ -177,11 +187,22 @@ export default class AiNotchHelper extends Extension {
         try {
             win.make_above();
             win.stick();
+            // No Wayland o Electron nem sempre recebe a workArea descontando a dock.
+            // Mantemos o topo livre (para encostar na borda) e respeitamos base e laterais da área útil.
+            let {x, y} = spec;
+            const mon = win.get_monitor();
+            const ws = global.workspace_manager.get_active_workspace();
+            if (mon >= 0 && ws) {
+                const wa = ws.get_work_area_for_monitor(mon);
+                if (y + spec.height > wa.y + wa.height) y = wa.y + wa.height - spec.height;
+                if (x < wa.x) x = wa.x;
+                else if (x + spec.width > wa.x + wa.width) x = wa.x + wa.width - spec.width;
+            }
             const r = win.get_frame_rect();
             if (r.width !== spec.width || r.height !== spec.height)
-                win.move_resize_frame(false, spec.x, spec.y, spec.width, spec.height);
-            else if (r.x !== spec.x || r.y !== spec.y)
-                win.move_frame(false, spec.x, spec.y);
+                win.move_resize_frame(false, x, y, spec.width, spec.height);
+            else if (r.x !== x || r.y !== y)
+                win.move_frame(false, x, y);
             this._syncFullscreen();
         } finally {
             GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
