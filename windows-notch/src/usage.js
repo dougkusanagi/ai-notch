@@ -105,7 +105,13 @@ function extractAntigravityToken(rawValue) {
   try {
     const decoded = Buffer.from(trimmed, 'base64').toString('latin1');
     const match = decoded.match(/ya29\.[A-Za-z0-9._-]+/);
-    return match ? match[0] : null;
+    if (match) return match[0];
+    // O UnifiedStateSync envolve o payload do OAuth em um segundo base64 dentro do protobuf.
+    for (const chunk of decoded.match(/[A-Za-z0-9+/=]{40,}/g) ?? []) {
+      const inner = Buffer.from(chunk, 'base64').toString('latin1').match(/ya29\.[A-Za-z0-9._-]+/);
+      if (inner) return inner[0];
+    }
+    return null;
   } catch { return null; }
 }
 

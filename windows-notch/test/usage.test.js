@@ -113,5 +113,7 @@ test('Antigravity: normaliza buckets por família e extrai token base64/JSON', (
   expect(() => normalizeAntigravity({})).toThrow('Antigravity');
   const b64 = Buffer.from('\x0a\x10ya29.test_token_123\x12\x00', 'latin1').toString('base64');
   expect(extractAntigravityToken(b64)).toBe('ya29.test_token_123');
+  const nested = Buffer.from(`\x0a\x05oauth\x12${Buffer.from('\x0a\x20ya29.nested_token_4567890123456789012345', 'latin1').toString('base64')}`, 'latin1').toString('base64');
+  expect(extractAntigravityToken(nested)).toBe('ya29.nested_token_4567890123456789012345');
   expect(extractAntigravityToken('{"access_token":"ya29.json_tok"}')).toBe('ya29.json_tok');
 });
