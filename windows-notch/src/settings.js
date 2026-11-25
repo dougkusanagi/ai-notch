@@ -54,6 +54,7 @@ $('autoStart').addEventListener('change', e => update({ autoStart: e.target.chec
 function badge(a) {
   const b = el('span', 'badge', a.initials);
   b.style.background = a.color;
+  b.style.color = textOn(a.color);
   return b;
 }
 function renderList() {
@@ -148,6 +149,7 @@ async function openEditor(a) {
     const color = /^#[0-9a-f]{6}$/i.test(hex.input.value.trim()) ? hex.input.value.trim() : '#8E8E93';
     pBadge.textContent = initials.input.value.trim().toUpperCase() || '··';
     pBadge.style.background = color;
+    pBadge.style.color = textOn(color);
     pName.textContent = name.input.value.trim() || 'Nome da conta';
     pSub.textContent = NAMES[f.provider];
     for (const [b, c] of swatches) b.setAttribute('aria-pressed', String(c.toLowerCase() === hex.input.value.trim().toLowerCase()));

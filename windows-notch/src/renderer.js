@@ -36,10 +36,18 @@ function ring(account, withInitials) {
   const val = svg.lastChild;
   val.style.strokeDashoffset = w ? 100 - w.remaining : 100;
   if (w) val.style.stroke = color(w.remaining);
+  if (withInitials && account.ok && account.color) {
+    // A cor da conta preenche o centro e o texto usa preto ou branco, o que contrastar mais.
+    const disc = document.createElementNS(SVG, 'circle');
+    disc.setAttribute('cx', 10); disc.setAttribute('cy', 10); disc.setAttribute('r', 6.4);
+    disc.setAttribute('class', 'disc');
+    disc.style.fill = account.color;
+    svg.prepend(disc);
+  }
   wrap.append(svg);
   if (withInitials) {
     const i = el('i', null, account.ok ? account.initials : '!');
-    if (account.ok && account.color) i.style.color = account.color;
+    if (account.ok && account.color) i.style.color = textOn(account.color);
     wrap.append(i);
   }
   return wrap;
@@ -127,7 +135,7 @@ function renderPanel(byProv) {
       if (multi) {
         const ah = el('div', 'acc-head');
         const badge = el('span', 'badge', a.initials);
-        if (a.color) { badge.style.background = a.color; badge.style.color = '#fff'; }
+        if (a.color) { badge.style.background = a.color; badge.style.color = textOn(a.color); }
         ah.append(badge, el('span', 'acc-name', a.name));
         if (a.plan) ah.append(el('span', 'plan', a.plan));
         acc.append(ah);
