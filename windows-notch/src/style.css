@@ -107,8 +107,13 @@ body {
 .row .lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .pct { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 .row .reset { color: var(--muted); font-size: 10.5px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.bar { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; position: relative; }
+.bar { height: 5px; border-radius: 3px; background: var(--track); position: relative; }
 .bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; transition: width .8s var(--ease); }
+.bar > .pace {
+  position: absolute; top: 50%; width: 1.5px; height: 11px;
+  transform: translate(-50%, -50%); border-radius: 1px;
+  background: var(--fg); opacity: .75; pointer-events: none;
+}
 .error { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
 .error.stale { color: var(--warn); font-size: 10.5px; }
 
