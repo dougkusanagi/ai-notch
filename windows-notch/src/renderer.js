@@ -71,9 +71,10 @@ function resetText(w) {
   if (d.toDateString() === new Date().toDateString()) return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12 });
   return d.toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12 }).replace('.', '');
 }
-function resetTitle(w) {
+function resetTitle(w, pace = null) {
   if (!w.reset) return w.minutes === 300 ? 'Janela sem uso: começa na próxima mensagem' : 'Renovação não informada';
-  return `Renova em ${relTime(w.reset)} (${new Date(w.reset).toLocaleString('pt-BR')})`;
+  const base = `Renova em ${relTime(w.reset)} (${new Date(w.reset).toLocaleString('pt-BR')})`;
+  return pace === null ? base : `${base} · ritmo constante: ${Math.round(pace)}% restante`;
 }
 
 function label(a) {
@@ -102,13 +103,19 @@ function renderCompact(byProv) {
 
 function windowRow(w) {
   const r = Math.round(w.remaining);
+  const pace = pacePercent(w);
   const row = el('div', 'row');
   const bar = el('div', 'bar');
   const fill = el('i');
   fill.style.width = `${r}%`; fill.style.background = color(r);
   bar.append(fill);
+  if (pace !== null) {
+    const tick = el('span', 'pace');
+    tick.style.left = `${pace}%`;
+    bar.append(tick);
+  }
   const reset = el('span', 'reset', resetText(w));
-  row.title = resetTitle(w);
+  row.title = resetTitle(w, pace);
   // Rótulos de tempo encurtados; os demais (ex.: modelos do Antigravity) usam o nome informado.
   const lbl = el('span', 'lbl', { '5 horas': '5h', Semanal: 'Semana' }[w.label] ?? w.label);
   lbl.title = w.label;
