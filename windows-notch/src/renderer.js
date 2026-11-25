@@ -4,8 +4,10 @@ const notchEl = $('#notch');
 const PROVIDERS = { claude: { name: 'Claude', icon: '#i-claude', cls: 'logo claude' }, codex: { name: 'Codex', icon: '#i-openai', cls: 'logo' } };
 const SVG = 'http://www.w3.org/2000/svg';
 let data = null, closeTimer = null;
+let view = { resetFormat: '24h', coloredBars: true };
 
-const color = r => r > 40 ? 'var(--ok)' : r > 15 ? 'var(--warn)' : 'var(--bad)';
+// Verde, âmbar e vermelho conforme o que resta; com "Barras coloridas" desligado, usa a cor do texto.
+const color = r => !view.coloredBars ? 'var(--fg)' : r > 40 ? 'var(--ok)' : r > 15 ? 'var(--warn)' : 'var(--bad)';
 const mainWindow = a => a.ok ? a.windows.find(w => w.minutes === 300) ?? a.windows[0] : null;
 
 function el(tag, cls, text) {
@@ -31,7 +33,11 @@ function ring(account, withInitials) {
   val.style.strokeDashoffset = w ? 100 - w.remaining : 100;
   if (w) val.style.stroke = color(w.remaining);
   wrap.append(svg);
-  if (withInitials) wrap.append(el('i', null, account.ok ? account.initials : '!'));
+  if (withInitials) {
+    const i = el('i', null, account.ok ? account.initials : '!');
+    if (account.ok && account.color) i.style.color = account.color;
+    wrap.append(i);
+  }
   return wrap;
 }
 
@@ -41,12 +47,17 @@ function relTime(ms) {
   if (m < 1440) return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}`;
   return `${Math.round(m / 1440)} dias`;
 }
+function ageText(ms) {
+  const m = Math.floor((Date.now() - ms) / 60e3);
+  return m < 1 ? 'agora há pouco' : m < 60 ? `há ${m} min` : `há ${Math.floor(m / 60)} h`;
+}
 function resetText(w) {
   if (!w.reset) return w.minutes === 300 ? 'sem uso' : '—';
   if (w.reset <= Date.now()) return 'agora';
-  const d = new Date(w.reset);
-  if (d.toDateString() === new Date().toDateString()) return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).replace('.', '');
+  if (view.resetFormat === 'relative') return relTime(w.reset);
+  const d = new Date(w.reset), hour12 = view.resetFormat === '12h';
+  if (d.toDateString() === new Date().toDateString()) return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12 });
+  return d.toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12 }).replace('.', '');
 }
 function resetTitle(w) {
   if (!w.reset) return w.minutes === 300 ? 'Janela sem uso: começa na próxima mensagem' : 'Renovação não informada';
@@ -111,18 +122,22 @@ function renderPanel(byProv) {
       const acc = el('div', 'account');
       if (multi) {
         const ah = el('div', 'acc-head');
-        ah.append(el('span', 'badge', a.initials), el('span', 'acc-name', a.name));
+        const badge = el('span', 'badge', a.initials);
+        if (a.color) { badge.style.background = a.color; badge.style.color = '#fff'; }
+        ah.append(badge, el('span', 'acc-name', a.name));
         if (a.plan) ah.append(el('span', 'plan', a.plan));
         acc.append(ah);
       }
       if (a.ok && a.stale) acc.append(el('p', 'error stale', `Dados desatualizados: ${a.error}`));
+      if (a.resetMsg?.sending) acc.append(el('p', 'error', 'Enviando a mensagem após o reset…'));
+      else if (a.resetMsg?.ok === false) acc.append(el('p', 'error stale', `Mensagem após o reset não enviada: ${a.resetMsg.error}`));
       if (a.ok) for (const w of a.windows) acc.append(windowRow(w));
       else acc.append(el('p', 'error', a.error));
       sec.append(acc);
     }
     body.append(sec);
   }
-  if (!body.children.length) body.append(el('p', 'error', 'Nenhum login encontrado. Entre no Claude Code ou no Codex CLI e clique em Atualizar.'));
+  if (!body.children.length) body.append(el('p', 'error', 'Nenhuma conta para mostrar. Adicione ou mostre uma conta em Configurações (⋯ > Configurações e contas).'));
 }
 
 function render() {
@@ -131,10 +146,17 @@ function render() {
   for (const a of data.accounts) byProv[a.provider]?.push(a);
   renderCompact(byProv);
   renderPanel(byProv);
-  const t = new Date(data.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  const retry = data.retryAt && data.retryAt > Date.now()
-    ? ` · nova tentativa às ${new Date(data.retryAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : '';
-  $('#updated').textContent = `Atualizado às ${t} · % restante${retry}`;
+  const hm = ms => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  // Idade do dado mais antigo: cada serviço atualiza no seu ritmo.
+  const times = data.accounts.filter(a => a.ok && a.fetchedAt).map(a => a.fetchedAt);
+  const oldest = times.length ? Math.min(...times) : data.at;
+  const perProvider = Object.entries(PROVIDERS).map(([p, info]) => {
+    const t = data.accounts.filter(a => a.provider === p && a.ok && a.fetchedAt).map(a => a.fetchedAt);
+    return t.length ? `${info.name}: ${hm(Math.max(...t))}` : null;
+  }).filter(Boolean).join(' · ');
+  const retry = data.retryAt && data.retryAt > Date.now() ? ` · nova tentativa às ${hm(data.retryAt)}` : '';
+  $('#updated').textContent = `Atualizado ${ageText(oldest)} · % restante${retry}`;
+  $('#updated').title = perProvider ? `Última consulta — ${perProvider}` : '';
   fit();
 }
 
@@ -163,6 +185,9 @@ function reportSize(w, h) {
   if (gw !== w || gh !== h) shrinkTimer = setTimeout(() => send(w, h), 520);
 }
 function applyPrefs(p) {
+  view = { resetFormat: p.resetFormat || '24h', coloredBars: p.coloredBars !== false };
+  setThemeUI(p.theme);
+  render();
   edge = p.edge || 'top';
   document.body.dataset.edge = edge;
   document.body.dataset.locked = String(!!p.locked);
@@ -174,6 +199,7 @@ let pinned = false, hovering = false;
 function open() {
   clearTimeout(closeTimer);
   api.interactive(true);
+  if (!notchEl.classList.contains('open')) api.opened(); // o painel só consulta se o dado está velho
   notchEl.classList.add('open');
   fit();
 }
@@ -243,7 +269,7 @@ function setThemeUI(t) {
 for (const b of document.querySelectorAll('.theme button')) {
   b.addEventListener('click', () => { setThemeUI(b.dataset.t); api.setTheme(b.dataset.t); });
 }
-api.prefs().then(p => { setThemeUI(p.theme); applyPrefs(p); });
+api.prefs().then(applyPrefs);
 api.onPrefs(applyPrefs);
 // Botão direito abre o mesmo menu da bandeja.
 notchEl.addEventListener('contextmenu', e => { e.preventDefault(); api.menu(); });

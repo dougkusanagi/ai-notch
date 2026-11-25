@@ -1,6 +1,8 @@
-const box = document.getElementById('monitors');
-const lockEl = document.getElementById('locked');
+const $ = id => document.getElementById(id);
 const EDGES = [['top', 'Topo'], ['bottom', 'Base'], ['left', 'Esquerda'], ['right', 'Direita']];
+const SERVICES = [['claude', 'Claude'], ['codex', 'Codex']];
+const NAMES = { claude: 'Claude', codex: 'Codex' };
+let state = null, editing = false;
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -8,7 +10,208 @@ function el(tag, cls, text) {
   if (text != null) e.textContent = text;
   return e;
 }
+function button(text, onClick, cls, label) {
+  const b = el('button', cls, text);
+  b.type = 'button';
+  if (label) b.setAttribute('aria-label', label);
+  b.addEventListener('click', onClick);
+  return b;
+}
 
+// ---- Abas ----
+const TABS = ['ajustes', 'contas', 'monitores'];
+function showTab(name) {
+  const tab = TABS.includes(name) ? name : 'ajustes';
+  for (const t of TABS) {
+    $(`tab-${t}`).hidden = t !== tab;
+    $(`t-${t}`).setAttribute('aria-selected', String(t === tab));
+    $(`t-${t}`).tabIndex = t === tab ? 0 : -1;
+  }
+}
+for (const t of TABS) $(`t-${t}`).addEventListener('click', () => { showTab(t); history.replaceState(null, '', `#${t}`); });
+window.settings.onTab(showTab);
+
+// ---- Ajustes ----
+function segmented(host, label, options, value, onPick) {
+  host.replaceChildren(...options.map(([v, text]) => {
+    const b = button(text, () => onPick(v), null);
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(v === value));
+    return b;
+  }));
+}
+function renderAjustes() {
+  const p = state.prefs;
+  segmented($('theme'), 'Tema', [['light', 'Claro'], ['dark', 'Escuro'], ['system', 'Sistema']], p.theme, v => update({ theme: v }));
+  segmented($('resetFormat'), 'Formato do reset', [['24h', '24 h'], ['12h', '12 h'], ['relative', 'Relativo']], p.resetFormat, v => update({ resetFormat: v }));
+  $('coloredBars').checked = p.coloredBars;
+  $('autoStart').checked = p.autoStart;
+}
+$('coloredBars').addEventListener('change', e => update({ coloredBars: e.target.checked }));
+$('autoStart').addEventListener('change', e => update({ autoStart: e.target.checked }));
+
+// ---- Contas: lista ----
+function badge(a) {
+  const b = el('span', 'badge', a.initials);
+  b.style.background = a.color;
+  return b;
+}
+function renderList() {
+  const list = $('list');
+  const rows = state.accounts.map((a, i) => {
+    const row = el('div', a.visible ? 'acct' : 'acct dim');
+    const names = el('div', 'names');
+    names.append(el('strong', null, `${a.name}`), el('small', null, `${NAMES[a.provider]} · ${a.profilePath}${a.visible ? '' : ' · oculta'}${a.autoResetMessage ? ' · mensagem após reset' : ''}`));
+    const actions = el('div', 'acts');
+    const up = button('↑', () => account({ type: 'move', id: a.id, offset: -1 }), 'icon', `Mover ${a.name} para cima`);
+    const down = button('↓', () => account({ type: 'move', id: a.id, offset: 1 }), 'icon', `Mover ${a.name} para baixo`);
+    up.disabled = i === 0; down.disabled = i === state.accounts.length - 1;
+    const eye = button(a.visible ? 'Ocultar' : 'Mostrar', () => account({ type: 'visible', id: a.id, visible: !a.visible }), null,
+      a.visible ? `Ocultar ${a.name} do notch` : `Mostrar ${a.name} no notch`);
+    actions.append(up, down, eye, button('Editar', () => openEditor(a), null, `Editar ${a.name}`));
+    row.append(badge(a), names, actions);
+    return row;
+  });
+  if (!rows.length) rows.push(el('p', 'hint', 'Nenhuma conta cadastrada. Adicione uma conta do Claude ou do Codex para ver os limites no notch.'));
+  list.replaceChildren(el('div', 'group accts', null), button('Adicionar conta', () => openEditor({}), 'primary add'));
+  list.firstChild.append(...rows);
+}
+
+// ---- Contas: editor ----
+const form = $('editor');
+async function openEditor(a) {
+  editing = true;
+  $('list').hidden = true; form.hidden = false;
+  const f = {
+    id: a.id, provider: a.provider ?? 'claude', name: a.name ?? '', profilePath: a.profilePath ?? state.defaults.dirs[a.provider ?? 'claude'],
+    initials: a.initials ?? '', color: a.color ?? state.defaults.palette[state.accounts.length % state.defaults.palette.length],
+    visible: a.visible !== false, autoResetMessage: a.autoResetMessage === true, resetPrompt: a.resetPrompt ?? state.defaults.prompt,
+  };
+  let manualInitials = Boolean(a.id);
+  form.replaceChildren();
+  const heading = el('h2', 'sec', a.id ? 'Editar conta' : 'Nova conta');
+
+  const field = (title, value, opts = {}) => {
+    const label = el('label', 'field');
+    const input = el('input');
+    input.type = 'text'; input.value = value; input.autocomplete = 'off'; input.spellcheck = false;
+    if (opts.max) input.maxLength = opts.max;
+    label.append(el('span', null, title), input);
+    return { label, input };
+  };
+
+  const preview = el('div', 'acct preview');
+  const pBadge = el('span', 'badge'), pNames = el('div', 'names'), pName = el('strong'), pSub = el('small');
+  pNames.append(pName, pSub); preview.append(pBadge, pNames);
+
+  const provider = el('div', 'seg wide'); provider.setAttribute('role', 'radiogroup'); provider.setAttribute('aria-label', 'Serviço');
+  const name = field('Nome', f.name, { max: 80 });
+  const dir = field('Diretório do perfil', f.profilePath);
+  const pick = button('Escolher…', async () => { const p = await window.settings.pick(); if (p) { dir.input.value = p; sync(); } });
+  dir.label.append(pick);
+  dir.label.classList.add('with-btn');
+
+  const login = el('div', 'login');
+  const loginHint = el('small'), loginCode = el('code'), copy = button('Copiar', async () => {
+    try { await navigator.clipboard.writeText(loginCode.textContent); loginHint.textContent = 'Copiado.'; }
+    catch { loginHint.textContent = 'Não foi possível copiar. Selecione o comando e use Ctrl+C.'; }
+  }, 'small');
+  const loginTop = el('div', 'login-top'); loginTop.append(loginHint, copy);
+  login.append(loginTop, loginCode);
+
+  const initials = field('Iniciais', f.initials, { max: 3 });
+  const hex = field('Cor (hexadecimal)', f.color, { max: 7 });
+  const palette = el('div', 'palette'); palette.setAttribute('role', 'group'); palette.setAttribute('aria-label', 'Cores sugeridas');
+  const swatches = state.defaults.palette.map(c => {
+    const b = button('', () => { hex.input.value = c; sync(); }, 'swatch', `Cor ${c}`);
+    b.style.background = c;
+    palette.append(b);
+    return [b, c];
+  });
+
+  const auto = el('label', 'line');
+  const autoBox = el('input'); autoBox.type = 'checkbox'; autoBox.checked = f.autoResetMessage;
+  const autoText = el('span', null, 'Mensagem após o reset de 5 h'); autoText.append(el('small', null, 'Quando a janela de 5 h ficar livre, envia uma mensagem curta pelo CLI desta conta. Isso inicia a próxima janela e usa um pouco do limite. Uma tentativa a cada 5 minutos, no máximo. O app precisa estar aberto e o CLI da conta, instalado e com login.'));
+  auto.append(autoText, autoBox);
+  const prompt = field('Prompt', f.resetPrompt, { max: 2000 });
+
+  const error = el('p', 'error'); error.hidden = true; error.setAttribute('role', 'alert');
+
+  const draw = () => {
+    segmented(provider, 'Serviço', SERVICES, f.provider, v => {
+      if (state.defaults.dirs[f.provider] === dir.input.value) dir.input.value = state.defaults.dirs[v];
+      f.provider = v; draw(); sync();
+    });
+  };
+  let syncToken = 0;
+  async function sync() {
+    const color = /^#[0-9a-f]{6}$/i.test(hex.input.value.trim()) ? hex.input.value.trim() : '#8E8E93';
+    pBadge.textContent = initials.input.value.trim().toUpperCase() || '··';
+    pBadge.style.background = color;
+    pName.textContent = name.input.value.trim() || 'Nome da conta';
+    pSub.textContent = NAMES[f.provider];
+    for (const [b, c] of swatches) b.setAttribute('aria-pressed', String(c.toLowerCase() === hex.input.value.trim().toLowerCase()));
+    const token = ++syncToken;
+    const cmd = await window.settings.accounts({ type: 'login', provider: f.provider, dir: dir.input.value });
+    if (token !== syncToken) return;
+    loginCode.textContent = cmd.login ?? '';
+    loginCode.hidden = copy.hidden = !cmd.login;
+    loginHint.textContent = cmd.login ? 'Para entrar nesta conta, rode no PowerShell:' : 'Informe um diretório válido para ver o comando de login.';
+  }
+
+  name.input.addEventListener('input', () => {
+    if (!manualInitials) initials.input.value = initialsOf(name.input.value);
+    sync();
+  });
+  initials.input.addEventListener('input', () => { manualInitials = true; sync(); });
+  for (const i of [dir.input, hex.input]) i.addEventListener('input', sync);
+
+  const actions = el('div', 'form-actions');
+  const submit = async () => {
+    error.hidden = true;
+    const r = await window.settings.accounts({
+      type: 'put', account: {
+        ...f, name: name.input.value, profilePath: dir.input.value, initials: initials.input.value,
+        color: hex.input.value.trim(), autoResetMessage: autoBox.checked, resetPrompt: prompt.input.value,
+      },
+    });
+    if (r.error) { error.textContent = r.error; error.hidden = false; return; }
+    closeEditor(r);
+  };
+  if (a.id) {
+    const remove = button('Remover conta', () => {
+      actions.replaceChildren(el('span', 'confirm', 'Remover esta conta? Só o cadastro é apagado; o login do CLI continua no disco.'),
+        button('Cancelar', () => openEditor(a)), button('Remover', async () => closeEditor(await window.settings.accounts({ type: 'remove', id: a.id })), 'danger'));
+    }, 'danger-outline');
+    actions.append(remove);
+  }
+  actions.append(el('span', 'grow'), button('Cancelar', () => closeEditor()), button(a.id ? 'Salvar' : 'Adicionar', submit, 'primary'));
+  for (const i of [name.input, dir.input, initials.input, hex.input, prompt.input]) i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  form.addEventListener('submit', e => e.preventDefault());
+
+  const h = (t) => el('h3', 'sub', t);
+  form.append(heading, preview, el('div', 'group stack', null), h('Cor'), el('div', 'group stack', null), h('Mensagem após o reset'), el('div', 'group stack', null), error, actions);
+  const [g1, g2, g3] = form.querySelectorAll('.group');
+  const svcLine = el('div', 'line'); svcLine.append(el('span', null, 'Serviço'), provider);
+  g1.append(svcLine, name.label, dir.label, login, initials.label);
+  g2.append(palette, hex.label);
+  g3.append(auto, prompt.label);
+  draw(); sync();
+  if (!a.id) name.input.focus();
+}
+function initialsOf(name) {
+  const words = name.trim().split(/\s+/u).filter(Boolean);
+  if (!words.length) return '';
+  const chars = words.length === 1 ? Array.from(words[0]).slice(0, 2) : [Array.from(words[0])[0], Array.from(words.at(-1))[0]];
+  return chars.join('').toLocaleUpperCase('pt-BR');
+}
+function closeEditor(next) {
+  editing = false;
+  form.hidden = true; $('list').hidden = false;
+  if (next) render(next); else window.settings.get().then(render);
+}
+
+// ---- Monitores e posição ----
 function card(m) {
   const c = el('section', m.show ? 'card' : 'card off');
   const h = el('h2', null, `Monitor ${m.index}${m.primary ? ' (principal)' : ''} `);
@@ -20,7 +223,7 @@ function card(m) {
   cb.addEventListener('change', () => update({ id: m.id, show: cb.checked }));
   show.append(cb, document.createTextNode('Mostrar o notch aqui'));
 
-  const prev = el('div', m.show ? 'preview' : 'preview off');
+  const prev = el('div', m.show ? 'preview-mon' : 'preview-mon off');
   prev.append(el('i', m.edge));
 
   const edges = el('div', 'edges');
@@ -42,169 +245,17 @@ function card(m) {
   return c;
 }
 
-function render(state) {
-  box.replaceChildren(...state.monitors.map(card));
-  lockEl.checked = state.locked;
+function render(s) {
+  state = s;
+  renderAjustes();
+  if (!editing) renderList();
+  $('monitors').replaceChildren(...s.monitors.map(card));
+  $('locked').checked = s.locked;
 }
 
 const update = s => window.settings.set(s).then(render);
-lockEl.addEventListener('change', () => update({ locked: lockEl.checked }));
+const account = op => window.settings.accounts(op).then(r => { render(r); return r; });
+$('locked').addEventListener('change', () => update({ locked: $('locked').checked }));
 window.addEventListener('focus', () => window.settings.get().then(render));
+showTab(location.hash.slice(1));
 window.settings.get().then(render);
-
-// ---- Contas ----
-const accBox = document.getElementById('accounts');
-const addForm = document.getElementById('add');
-const addError = document.getElementById('add-error');
-const dirInput = document.getElementById('add-dir');
-const statusEl = document.getElementById('status');
-const PROV = { claude: { name: 'Claude', color: '#d97757' }, codex: { name: 'Codex', color: '#10a37f' } };
-let statusTimer;
-
-function flash(msg) {
-  statusEl.textContent = msg;
-  clearTimeout(statusTimer);
-  statusTimer = setTimeout(() => { statusEl.textContent = ''; }, 2500);
-}
-function showError(msg) { addError.hidden = !msg; addError.textContent = msg ?? ''; }
-
-// Mostra ~ no lugar da pasta do usuário, para o caminho caber na linha.
-const shortDir = dir => dir.replace(/^(\/home\/[^/]+|\/Users\/[^/]+|[A-Z]:\\Users\\[^\\]+)/, '~');
-
-const restoreEl = document.getElementById('restore');
-function renderAccounts({ accounts, removed }) {
-  restoreEl.hidden = !removed;
-  if (removed) {
-    const b = el('button', null, 'Restaurar');
-    b.type = 'button';
-    b.addEventListener('click', () => save({ restore: true }, 'Contas restauradas.'));
-    restoreEl.replaceChildren(document.createTextNode(`${removed} ${removed > 1 ? 'contas encontradas foram removidas' : 'conta encontrada foi removida'} da lista. `), b);
-  }
-  if (accBox.contains(document.activeElement) && document.activeElement.type === 'text') return;
-  if (!accounts.length) return accBox.replaceChildren(el('p', 'empty', 'Nenhuma conta encontrada. Entre no Claude Code ou no Codex CLI, ou adicione uma pasta abaixo.'));
-  const groups = [];
-  for (const [id, info] of Object.entries(PROV)) {
-    const list = accounts.filter(a => a.provider === id);
-    if (!list.length) continue;
-    const g = el('section', 'provider');
-    g.style.setProperty('--p', info.color);
-    const h = el('header');
-    h.append(el('i'), document.createTextNode(`${info.name} · ${list.length} ${list.length > 1 ? 'contas' : 'conta'}`));
-    const box = el('div', 'list');
-    box.append(...list.map((a, i) => accountRow(a, i, list.length)));
-    g.append(h, box);
-    groups.push(g);
-  }
-  accBox.replaceChildren(...groups);
-}
-
-async function save(a, msg) {
-  const r = await window.settings.setAccount(a);
-  renderAccounts(r);
-  if (r.error) flash(r.error); else flash(msg);
-  return r;
-}
-
-function input(cls, value, label, max) {
-  const i = el('input', cls);
-  i.type = 'text'; i.value = value; i.maxLength = max; i.setAttribute('aria-label', label); i.spellcheck = false;
-  i.addEventListener('keydown', e => {
-    if (e.key === 'Enter') i.blur();
-    if (e.key === 'Escape') { i.value = i.defaultValue; i.blur(); }
-  });
-  return i;
-}
-
-function accountRow(a, index, total) {
-  const row = el('div', a.hidden ? 'acc off' : 'acc');
-  const badge = el('span', 'badge', a.initials);
-  badge.setAttribute('aria-hidden', 'true');
-
-  const fields = el('div', 'fields');
-  const name = input('name', a.name, `Nome da conta ${PROV[a.provider].name}`, 40);
-  const ini = input('ini', a.initials, `Iniciais da conta ${a.name}`, 3);
-  ini.addEventListener('input', () => { badge.textContent = ini.value.toUpperCase() || '?'; });
-  const commit = () => {
-    if (name.value.trim() === a.name && ini.value.trim().toUpperCase() === a.initials) return;
-    // Só envia as iniciais se mudaram; assim, sem iniciais próprias, elas seguem o novo nome.
-    const changed = ini.value.trim().toUpperCase() !== a.initials;
-    save({ dir: a.dir, name: name.value, ...(changed && { initials: ini.value }) }, 'Conta salva.');
-  };
-  name.addEventListener('change', commit);
-  ini.addEventListener('change', commit);
-  fields.append(name, ini);
-
-  const actions = el('div', 'actions');
-  const sw = el('label', 'switch');
-  sw.title = a.hidden ? 'Oculta no notch' : 'Visível no notch';
-  const cb = el('input'); cb.type = 'checkbox'; cb.checked = !a.hidden; cb.setAttribute('role', 'switch');
-  cb.setAttribute('aria-label', `Mostrar ${a.name} no notch`);
-  cb.addEventListener('change', () => save({ dir: a.dir, hidden: !cb.checked }, cb.checked ? `${a.name} voltou ao notch.` : `${a.name} foi ocultada.`));
-  sw.append(cb, el('span'));
-  actions.append(sw);
-
-  const meta = el('div', 'meta');
-  if (!a.loggedIn) meta.append(el('span', 'warn', 'Sem login'));
-  const dir = el('div', 'dir');
-  dir.title = a.dir;
-  if (a.custom) dir.append(el('em', null, 'Adicionada'));
-  dir.append(document.createTextNode(shortDir(a.dir)));
-
-  const tools = el('div', 'tools');
-  const copy = tool(ICONS.copy, 'Copiar login', `Copiar o comando de login de ${a.name}`, () => {
-    window.settings.copy(a.login);
-    flash(`Comando copiado. Cole no terminal para entrar em ${a.name}.`);
-  });
-  copy.classList.add('copy');
-  if (!a.loggedIn) copy.classList.add('need');
-  copy.title = a.login;
-  const up = tool(ICONS.up, null, `Mover ${a.name} para cima`, () => save({ dir: a.dir, move: -1 }, 'Ordem salva.'));
-  const down = tool(ICONS.down, null, `Mover ${a.name} para baixo`, () => save({ dir: a.dir, move: 1 }, 'Ordem salva.'));
-  up.disabled = index === 0; down.disabled = index === total - 1;
-  const rm = tool(ICONS.trash, null, `Remover a conta ${a.name}`, () => {
-    const extra = a.custom ? '' : ' Ela foi encontrada sozinha; você pode trazê-la de volta em "Restaurar".';
-    if (confirm(`Remover "${a.name}" da lista? A pasta e o login não são apagados.${extra}`)) save({ dir: a.dir, remove: true }, 'Conta removida.');
-  });
-  rm.classList.add('danger');
-  tools.append(copy, up, down, rm);
-  meta.append(dir, tools);
-
-  row.append(badge, fields, actions, meta);
-  return row;
-}
-
-const ICONS = {
-  copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/>',
-  up: '<path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7"/>',
-  down: '<path d="M8 3.5v9M4.5 9 8 12.5 11.5 9"/>',
-  trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
-};
-function tool(icon, text, label, onClick) {
-  const b = el('button');
-  b.type = 'button';
-  b.setAttribute('aria-label', label);
-  b.title = label;
-  b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icon}</svg>`;
-  if (text) b.append(el('span', 'label', text));
-  b.addEventListener('click', onClick);
-  return b;
-}
-
-document.getElementById('browse').addEventListener('click', async () => {
-  const dir = await window.settings.pickFolder();
-  if (dir) { dirInput.value = dir; showError(null); }
-});
-
-addForm.addEventListener('submit', async e => {
-  e.preventDefault();
-  const btn = addForm.querySelector('.primary');
-  btn.disabled = true;
-  const provider = addForm.querySelector('input[name=provider]:checked').value;
-  const r = await window.settings.setAccount({ add: true, provider, dir: dirInput.value.trim() }).finally(() => { btn.disabled = false; });
-  renderAccounts(r);
-  showError(r.error);
-  if (!r.error) { dirInput.value = ''; flash('Conta adicionada. Se ela ainda não tem login, use "Copiar login".'); }
-});
-const loadAccounts = () => window.settings.accounts().then(renderAccounts);
-window.addEventListener('focus', loadAccounts);
-loadAccounts();

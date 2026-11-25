@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('notch', {
   interactive: on => ipcRenderer.send('interactive', on),
   platform: process.platform,
   openSettings: () => ipcRenderer.send('open-settings'),
+  opened: () => ipcRenderer.send('opened'),
   refresh: () => ipcRenderer.send('refresh'),
   menu: () => ipcRenderer.send('menu'),
   setTheme: t => ipcRenderer.send('theme', t),

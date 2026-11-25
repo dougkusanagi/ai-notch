@@ -6,15 +6,18 @@ Com mais de uma conta do mesmo serviço, o notch fechado mostra um anel por cont
 
 O botão de engrenagem no rodapé do painel (ou **Configurações…** no menu ⋯, no botão direito do notch e na bandeja) abre a tela de configuração, onde cada monitor tem sua caixa "Mostrar o notch aqui" (sem nenhuma marcada o notch fica oculto; clicar no ícone da bandeja o traz de volta) e sua própria borda: topo, base, esquerda ou direita. Base e laterais ficam acima da barra de tarefas. Arraste o notch ao longo da borda para tirá-lo de cima de outra informação; o limite considera o painel aberto, para não vazar para outro monitor. Duplo clique ou **Centralizar no monitor** volta ao centro. **Fixar posição** bloqueia o arrasto. Na seção **Contas** da mesma tela você edita o nome e as iniciais de cada conta, oculta, reordena e remove contas (as encontradas sozinhas podem ser restauradas) e adiciona outras pastas de login do Claude e do Codex. **Copiar login** copia o comando que entra na conta usando a pasta dela (por exemplo, `CLAUDE_CONFIG_DIR="$HOME"/.claude-trabalho claude`); cole no terminal.
 
+Em **Configurações e contas…** (⋯, botão direito ou bandeja) ficam três abas: **Ajustes** (tema, formato do horário de reset 24 h/12 h/relativo, barras coloridas, iniciar com o Windows), **Contas** e **Monitores e posição**. Em Contas é possível adicionar, editar, remover, reordenar e ocultar contas, escolher serviço, nome, diretório do perfil, iniciais e cor, e copiar o comando de login do PowerShell. A opção **Mensagem após o reset de 5 h** envia, pelo CLI da conta (`claude` ou `codex`, no PATH, em `~.localin` ou em `~AppDataRoaming
+pm`), uma mensagem curta quando a janela de 5 horas fica livre. O texto vai pela entrada padrão. O app precisa estar aberto.
+
 Fora do notch, a janela é transparente e deixa os cliques passarem.
 
 ## Dados
 
-- Perfis: o app usa o diretório padrão e também detecta diretórios irmãos com login, como `.claude-trabalho` ou `.codex-cliente`. O nome e as iniciais vêm do sufixo (`trabalho` → Trabalho / TR).
+- Perfis: na primeira execução o app cria a lista de contas a partir do diretório padrão e dos irmãos com login, como `.claude-trabalho` ou `.codex-cliente` (nome e iniciais vêm do sufixo). Depois disso a lista é a da aba Contas; perfis novos entram por **Adicionar conta**. Contas ocultas não são consultadas.
 - Claude: lê `%USERPROFILE%\.claude\.credentials.json` (ou `CLAUDE_CONFIG_DIR`). Faça login pelo Claude Code.
 - Codex: lê `%USERPROFILE%\.codex\auth.json` (ou `CODEX_HOME`). Faça login com `codex login`.
-- Tokens ficam só em memória. O app não salva, não copia e não registra credenciais. A consulta é feita a cada 5 minutos e de novo ao voltar da suspensão ou desbloquear a tela.
-- Se uma consulta falhar, os últimos números continuam na tela como **desatualizados** (`!` no notch e o motivo no painel). Em HTTP 429, nem a atualização manual consulta antes do prazo: espera de 5, 10, 20, 40 e até 60 minutos, ou o Retry-After do serviço se for maior.
+- Tokens ficam só em memória. O app não salva, não copia e não registra credenciais. Cada serviço tem o próprio ritmo: Claude a cada ~6 minutos (o endpoint limita com rigor) e Codex a cada ~2 minutos, sempre com intervalo mínimo e pequeno desvio aleatório. Também consulta ao abrir o painel se o dado tem mais de 1 minuto, logo depois de um reset conhecido e ao voltar da suspensão ou desbloquear a tela. Contas do mesmo serviço são consultadas em sequência.
+- Se uma consulta falhar, os últimos números continuam na tela como **desatualizados** (`!` no notch e o motivo no painel). Em HTTP 429, só aquele serviço espera (a atualização manual também respeita o prazo): espera de 5, 10, 20, 40 e até 60 minutos, ou o Retry-After do serviço se for maior.
 - Os endpoints são internos e podem mudar (veja `docs/RESEARCH.md`).
 
 ## Executar
@@ -36,9 +39,9 @@ bun install
 bun run dist   # gera out\AI Quota Notch Setup 0.1.0.exe (NSIS, por usuário, sem admin)
 ```
 
-O instalador também pode ser gerado no Linux (precisa de acesso à internet na primeira vez). O app não é assinado, então o SmartScreen avisa na primeira execução. O ícone na bandeja é o plano B se o notch ficar escondido: clique atualiza, botão direito abre o menu (Atualizar, Iniciar com o Windows, Sair). `bun run icon` regenera `assets/icon.*` (precisa de Python com Pillow).
+O instalador também pode ser gerado no Linux (precisa de acesso à internet na primeira vez). O app não é assinado, então o SmartScreen avisa na primeira execução. O ícone na bandeja é o plano B se o notch ficar escondido: clique atualiza, botão direito abre o menu (Atualizar, Iniciar com o Windows, Sair). `bun run icon` regenera `assets/icon.*` (precisa do `uv`).
 
-Preferências (tema) ficam em `%APPDATA%\ai-quota-notch\prefs.json`.
+Preferências e contas (sem credenciais) ficam em `%APPDATA%\ai-quota-notch\prefs.json`.
 
 ## Linux (Ubuntu/GNOME, protótipo)
 
@@ -65,3 +68,11 @@ Abra o AppImage com o Gear Lever: ele move o arquivo para `~/AppImages` e cria o
 Em teste: a barra superior pode ficar por cima do notch. Veja `docs/plans/linux-electron-posicionador.md`.
 
 No Linux, a janela recebe o mouse diretamente e acompanha o tamanho do widget durante a expansão. Sem sombra no painel aberto, porque a janela a cortaria. `bun run icon` também gera `assets/tray-linux.png`.
+
+### Atualizar a versão instalada
+
+```bash
+bun run desktop:update   # na raiz do repositório (ou em windows-notch/)
+```
+
+Gera e instala a versão atual no sistema em que roda: no Windows, o instalador NSIS em modo silencioso; no Ubuntu, o AppImage em `~/AppImages` (remove versões antigas). Fecha o notch em execução antes. Para atualizar os dois, rode o comando em cada sistema.

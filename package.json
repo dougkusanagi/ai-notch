@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"test":"make test","check":"make check"}}
+{"private":true,"type":"module","scripts":{"test":"make test","check":"make check","desktop:update":"bun windows-notch/scripts/update.mjs"}}
