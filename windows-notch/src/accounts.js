@@ -5,8 +5,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const DEFAULT_RESET_PROMPT = 'Responda apenas: OK.';
-const SERVICES = ['claude', 'codex'];
-const DEFAULT_DIR = { claude: '~\\.claude', codex: '~\\.codex' };
+const SERVICES = ['claude', 'codex', 'antigravity'];
+const IS_WIN = process.platform === 'win32';
+const DEFAULT_DIR = {
+  claude: IS_WIN ? '~\\.claude' : '~/.claude',
+  codex: IS_WIN ? '~\\.codex' : '~/.codex',
+  antigravity: IS_WIN ? '~\\AppData\\Roaming\\Antigravity' : '~/.config/Antigravity',
+};
 const PALETTE = ['#0A84FF', '#7D35D8', '#D6409F', '#E5484D', '#E07B00', '#1F9D55', '#0E9AA7', '#5B6B7F'];
 
 function initialsFor(name) {
@@ -95,7 +100,9 @@ function loginCommand(provider, profilePath, home = os.homedir()) {
   let dir;
   try { dir = expandPath(profilePath, home); } catch { return ''; }
   const q = `'${dir.replaceAll("'", "''")}'`;
-  return provider === 'codex' ? `$env:CODEX_HOME=${q}; codex login` : `$env:CLAUDE_CONFIG_DIR=${q}; claude`;
+  if (provider === 'codex') return `$env:CODEX_HOME=${q}; codex login`;
+  if (provider === 'antigravity') return `antigravity --user-data-dir=${q}`;
+  return `$env:CLAUDE_CONFIG_DIR=${q}; claude`;
 }
 
 module.exports = {

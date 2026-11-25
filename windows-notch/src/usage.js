@@ -45,9 +45,11 @@ async function readJSON(file, missing) {
   catch (e) { throw new Error(e.code === 'ENOENT' ? missing : 'Não foi possível ler o login local.'); }
 }
 
-async function request(url, headers) {
+async function request(url, headers, opts = {}) {
   const res = await fetch(url, {
+    method: opts.method ?? 'GET',
     headers: { 'User-Agent': 'AIQuotaNotch/0.1', ...headers },
+    ...(opts.body !== undefined ? { body: opts.body } : {}),
     redirect: 'manual', // nunca repassa o token para outro destino
     signal: AbortSignal.timeout(20000),
   });
@@ -66,6 +68,8 @@ const PROVIDERS = {
     missing: 'Entre no Claude Code para ver os limites.' },
   codex: { prefix: '.codex', file: 'auth.json', env: 'CODEX_HOME', read: codex,
     missing: 'Entre no Codex CLI (codex login) para ver os limites.' },
+  antigravity: { prefix: '.antigravity', file: 'User/globalStorage/state.vscdb', env: 'ANTIGRAVITY_USER_DATA_DIR', read: antigravity,
+    missing: 'Entre no Antigravity para ver os limites.' },
 };
 
 async function claude(dir) {
@@ -87,6 +91,86 @@ async function codex(dir) {
   return normalizeOpenAI(raw);
 }
 
+function extractAntigravityToken(rawValue) {
+  if (!rawValue || typeof rawValue !== 'string') return null;
+  const trimmed = rawValue.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed.access_token || parsed.accessToken || parsed.token || null;
+    } catch { return null; }
+  }
+  const direct = trimmed.match(/ya29\.[A-Za-z0-9._-]+/);
+  if (direct) return direct[0];
+  try {
+    const decoded = Buffer.from(trimmed, 'base64').toString('latin1');
+    const match = decoded.match(/ya29\.[A-Za-z0-9._-]+/);
+    return match ? match[0] : null;
+  } catch { return null; }
+}
+
+function antigravityGroupLabel(modelId) {
+  const id = String(modelId ?? '').toLowerCase();
+  if (id.includes('claude')) return 'Claude';
+  if (id.includes('flash')) return 'Gemini Flash';
+  if (id.includes('pro') || id.includes('gemini')) return 'Gemini Pro';
+  return modelId ? String(modelId).slice(0, 18) : 'Cota';
+}
+
+function normalizeAntigravity(raw) {
+  const buckets = Array.isArray(raw?.buckets) ? raw.buckets : [];
+  const grouped = new Map();
+  for (const b of buckets) {
+    if (typeof b?.remainingFraction !== 'number') continue;
+    const label = antigravityGroupLabel(b.modelId);
+    const remaining = clamp(b.remainingFraction * 100);
+    const reset = resetMs(b.resetTime);
+    const prev = grouped.get(label);
+    if (!prev || remaining < prev.remaining) {
+      grouped.set(label, { label, minutes: 300, remaining, reset });
+    }
+  }
+  const windows = [...grouped.values()].slice(0, 3);
+  if (!windows.length) throw new Error('O Antigravity não informou limites de uso.');
+  return { windows };
+}
+
+function readSqliteItem(dbFile, key) {
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(dbFile, { readOnly: true });
+    try {
+      const row = db.prepare('SELECT value FROM ItemTable WHERE key = ?').get(key);
+      return row?.value ?? null;
+    } finally { db.close(); }
+  } catch {
+    const { Database } = require('bun:sqlite');
+    const db = new Database(dbFile, { readonly: true });
+    try {
+      const row = db.query('SELECT value FROM ItemTable WHERE key = ?').get(key);
+      return row?.value ?? null;
+    } finally { db.close(); }
+  }
+}
+
+async function antigravity(dir) {
+  const candidates = [path.join(dir, 'User', 'globalStorage', 'state.vscdb'), path.join(dir, 'state.vscdb')];
+  let dbFile = null;
+  for (const c of candidates) {
+    if (await fs.access(c).then(() => true, () => false)) { dbFile = c; break; }
+  }
+  if (!dbFile) throw new Error(PROVIDERS.antigravity.missing);
+  let rawToken;
+  try { rawToken = readSqliteItem(dbFile, 'antigravityUnifiedStateSync.oauthToken'); }
+  catch { throw new Error('Não foi possível ler o login local do Antigravity.'); }
+  const token = extractAntigravityToken(rawToken);
+  if (!token) throw new Error('Entre no Antigravity para ver os limites.');
+  const raw = await request('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota',
+    { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    { method: 'POST', body: '{}' });
+  return normalizeAntigravity(raw);
+}
+
 // Nome e iniciais a partir do diretório: .claude -> Principal; .claude-trabalho -> Trabalho / TR
 function profileName(dirName, prefix) {
   const suffix = dirName.slice(prefix.length).replace(/^[-_.]/, '');
@@ -105,7 +189,13 @@ async function discoverProfiles(home = os.homedir(), config = {}) {
   for (const [provider, cfg] of Object.entries(PROVIDERS)) {
     const dirs = new Set();
     if (process.env[cfg.env]) dirs.add(path.resolve(process.env[cfg.env]));
-    dirs.add(path.join(home, cfg.prefix));
+    if (provider !== 'antigravity') dirs.add(path.join(home, cfg.prefix));
+    else {
+      const defDir = process.platform === 'win32'
+        ? path.join(home, 'AppData', 'Roaming', 'Antigravity')
+        : path.join(home, '.config', 'Antigravity');
+      if (await fs.access(path.join(defDir, cfg.file)).then(() => true, () => false)) dirs.add(defDir);
+    }
     for (const e of entries) {
       if (!e.isDirectory() || !/^[-_.]./.test(e.name.slice(cfg.prefix.length)) || !e.name.startsWith(cfg.prefix)) continue;
       const dir = path.join(home, e.name);
@@ -207,4 +297,4 @@ async function fetchAll(home, previous = [], { providers, gapMs = 0, accounts } 
   return done.flat();
 }
 
-module.exports = { keepStale, backoffMs, normalizeClaude, normalizeOpenAI, resetMs, profileName, initialsOf, loginCommand, discoverProfiles, fetchAll, demo };
+module.exports = { keepStale, backoffMs, normalizeClaude, normalizeOpenAI, normalizeAntigravity, extractAntigravityToken, resetMs, profileName, initialsOf, loginCommand, discoverProfiles, fetchAll, demo };

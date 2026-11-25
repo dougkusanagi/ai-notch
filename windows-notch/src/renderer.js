@@ -1,7 +1,11 @@
 const $ = (s, el = document) => el.querySelector(s);
 const api = window.notch;
 const notchEl = $('#notch');
-const PROVIDERS = { claude: { name: 'Claude', icon: '#i-claude', cls: 'logo claude' }, codex: { name: 'Codex', icon: '#i-openai', cls: 'logo' } };
+const PROVIDERS = {
+  claude: { name: 'Claude', icon: '#i-claude', cls: 'logo claude' },
+  codex: { name: 'Codex', icon: '#i-openai', cls: 'logo' },
+  antigravity: { name: 'Antigravity', icon: '#i-antigravity', cls: 'logo' },
+};
 const SVG = 'http://www.w3.org/2000/svg';
 let data = null, closeTimer = null;
 let view = { resetFormat: '24h', coloredBars: true };
@@ -142,7 +146,7 @@ function renderPanel(byProv) {
 
 function render() {
   if (!data) return;
-  const byProv = { claude: [], codex: [] };
+  const byProv = { claude: [], codex: [], antigravity: [] };
   for (const a of data.accounts) byProv[a.provider]?.push(a);
   renderCompact(byProv);
   renderPanel(byProv);

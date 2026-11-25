@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
 const EDGES = [['top', 'Topo'], ['bottom', 'Base'], ['left', 'Esquerda'], ['right', 'Direita']];
-const SERVICES = [['claude', 'Claude'], ['codex', 'Codex']];
-const NAMES = { claude: 'Claude', codex: 'Codex' };
+const SERVICES = [['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity']];
+const NAMES = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity' };
 let state = null, editing = false;
 
 function el(tag, cls, text) {

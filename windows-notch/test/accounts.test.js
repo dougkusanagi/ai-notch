@@ -53,6 +53,7 @@ test('lista inicial vem dos perfis detectados', () => {
 test('comando de login usa aspas simples e protege apóstrofo', () => {
   expect(A.loginCommand('claude', 'C:\\a b', 'C:\\h')).toBe("$env:CLAUDE_CONFIG_DIR='C:\\a b'; claude");
   expect(A.loginCommand('codex', "C:\\o'k", 'C:\\h')).toBe("$env:CODEX_HOME='C:\\o''k'; codex login");
+  expect(A.loginCommand('antigravity', '/home/u/.config/Antigravity', '/home/u')).toBe("antigravity --user-data-dir='/home/u/.config/Antigravity'");
   expect(A.loginCommand('codex', 'relativo')).toBe('');
 });
 

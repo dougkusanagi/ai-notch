@@ -7,6 +7,7 @@ const { backoffMs } = require('./usage');
 const POLICY = {
   claude: { intervalMs: 6 * 60e3, minGapMs: 60e3 },
   codex: { intervalMs: 2 * 60e3, minGapMs: 30e3 },
+  antigravity: { intervalMs: 5 * 60e3, minGapMs: 60e3 },
 };
 const STALE_MS = 60e3;        // ao abrir o painel, só consulta se o dado tem mais que isso
 const RESET_DELAY_MS = 15e3;  // espera após o reset conhecido, para o serviço já refletir a renovação

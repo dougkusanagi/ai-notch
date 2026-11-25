@@ -1,5 +1,5 @@
 const { test, expect } = require('bun:test');
-const { normalizeClaude, normalizeOpenAI, resetMs, keepStale, backoffMs } = require('../src/usage');
+const { normalizeClaude, normalizeOpenAI, normalizeAntigravity, extractAntigravityToken, resetMs, keepStale, backoffMs } = require('../src/usage');
 
 test('Claude: 5h e semanal com restante calculado', () => {
   const r = normalizeClaude({ five_hour: { utilization: 38, resets_at: '2026-10-24T18:00:00Z' }, seven_day: { utilization: 19 } });
@@ -98,4 +98,20 @@ test('discoverProfiles respeita a ordem, oculta as removidas e informa o login',
   expect(list.map(p => path.basename(p.dir))).toEqual(['.claude-b', '.claude-a', '.claude']);
   expect(list.find(p => p.dir === j('.claude-a')).loggedIn).toBe(true);
   expect(list.find(p => p.dir === j('.claude')).loggedIn).toBe(false);
+});
+
+test('Antigravity: normaliza buckets por família e extrai token base64/JSON', () => {
+  const r = normalizeAntigravity({
+    buckets: [
+      { modelId: 'gemini-3-pro', remainingFraction: 0.72, resetTime: '2026-11-25T18:00:00Z' },
+      { modelId: 'gemini-3-pro-high', remainingFraction: 0.45, resetTime: '2026-11-25T18:00:00Z' },
+      { modelId: 'gemini-3-flash', remainingFraction: 0.9, resetTime: '2026-11-25T18:00:00Z' },
+      { modelId: 'claude-sonnet-4-5', remainingFraction: 0.6, resetTime: '2026-11-25T18:00:00Z' },
+    ],
+  });
+  expect(r.windows.map(w => [w.label, w.remaining])).toEqual([['Gemini Pro', 45], ['Gemini Flash', 90], ['Claude', 60]]);
+  expect(() => normalizeAntigravity({})).toThrow('Antigravity');
+  const b64 = Buffer.from('\x0a\x10ya29.test_token_123\x12\x00', 'latin1').toString('base64');
+  expect(extractAntigravityToken(b64)).toBe('ya29.test_token_123');
+  expect(extractAntigravityToken('{"access_token":"ya29.json_tok"}')).toBe('ya29.json_tok');
 });
