@@ -135,7 +135,6 @@ function renderPanel(byProv) {
     sec.append(head);
     for (const a of list) {
       const acc = el('div', 'account');
-      acc.dataset.p = a.provider;
       if (multi) {
         const ah = el('div', 'acc-head');
         const badge = el('span', 'badge', a.initials);
@@ -147,7 +146,11 @@ function renderPanel(byProv) {
       if (a.ok && a.stale) acc.append(el('p', 'error stale', `Dados desatualizados: ${a.error}`));
       if (a.resetMsg?.sending) acc.append(el('p', 'error', 'Enviando a mensagem após o reset…'));
       else if (a.resetMsg?.ok === false) acc.append(el('p', 'error stale', `Mensagem após o reset não enviada: ${a.resetMsg.error}`));
-      if (a.ok) for (const w of a.windows) acc.append(windowRow(w));
+      // Antigravity: as cotas vêm por grupo de modelos, com um título antes de cada grupo.
+      if (a.ok) a.windows.forEach((w, i) => {
+        if (w.group && w.group !== a.windows[i - 1]?.group) acc.append(el('p', 'win-group', w.group));
+        acc.append(windowRow(w));
+      });
       else acc.append(el('p', 'error', a.error));
       sec.append(acc);
     }

@@ -109,13 +109,31 @@ test('Antigravity: normaliza buckets por família e extrai token base64/JSON', (
       { modelId: 'claude-sonnet-4-5', remainingFraction: 0.6, resetTime: '2026-11-25T18:00:00Z' },
     ],
   });
-  expect(r.windows.map(w => [w.label, w.remaining])).toEqual([['Pro', 45], ['Flash', 90], ['Claude', 60]]);
+  expect(r.windows.map(w => [w.group, w.remaining])).toEqual([['Pro', 45], ['Flash', 90], ['Claude', 60]]);
+  expect(r.windows.every(w => w.label === '5 horas')).toBe(true);
   expect(() => normalizeAntigravity({})).toThrow('Antigravity');
   const b64 = Buffer.from('\x0a\x10ya29.test_token_123\x12\x00', 'latin1').toString('base64');
   expect(extractAntigravityToken(b64)).toBe('ya29.test_token_123');
   const nested = Buffer.from(`\x0a\x05oauth\x12${Buffer.from('\x0a\x20ya29.nested_token_4567890123456789012345', 'latin1').toString('base64')}`, 'latin1').toString('base64');
   expect(extractAntigravityToken(nested)).toBe('ya29.nested_token_4567890123456789012345');
   expect(extractAntigravityToken('{"access_token":"ya29.json_tok"}')).toBe('ya29.json_tok');
+});
+
+test('Antigravity: normaliza o resumo de cotas com 5 horas e semanal por grupo', () => {
+  const r = normalizeAntigravity({ response: { groups: [
+    { displayName: 'Gemini Models', buckets: [
+      { window: 'weekly', remainingFraction: 0.67, resetTime: '2026-12-01T19:34:13Z' },
+      { window: '5h', remainingFraction: 0.71, resetTime: '2026-11-25T15:49:19Z' }] },
+    { displayName: 'Claude and GPT models', buckets: [
+      { window: 'weekly', remainingFraction: 1, resetTime: '2026-12-02T13:00:36Z' },
+      { window: '5h', remainingFraction: 1, resetTime: '2026-11-25T18:00:36Z' },
+      { window: 'daily', remainingFraction: 0.5 }] },
+  ] } });
+  expect(r.windows.map(w => [w.group, w.label, w.minutes, w.remaining])).toEqual([
+    ['Gemini', '5 horas', 300, 71], ['Gemini', 'Semanal', 10080, 67],
+    ['Claude e GPT', '5 horas', 300, 100], ['Claude e GPT', 'Semanal', 10080, 100]]);
+  expect(r.windows[1].reset).toBe(Date.parse('2026-12-01T19:34:13Z'));
+  expect(() => normalizeAntigravity({ response: { groups: [] } })).toThrow('Antigravity');
 });
 
 test('Antigravity: normaliza o GetUserStatus do servidor local', () => {
@@ -127,6 +145,6 @@ test('Antigravity: normaliza o GetUserStatus do servidor local', () => {
     { label: 'GPT-OSS 120B (Medium)', modelId: 'gpt-oss-120b-medium', quotaInfo: { remainingFraction: 1, resetTime: reset } },
     { label: 'Sem cota', modelId: 'x' },
   ] } } });
-  expect(r.windows.map(w => [w.label, w.remaining])).toEqual([['Gemini', 64], ['Claude + GPT-OSS', 100]]);
+  expect(r.windows.map(w => [w.group, w.remaining])).toEqual([['Gemini', 64], ['Claude + GPT-OSS', 100]]);
   expect(r.windows[0].reset).toBe(Date.parse(reset));
 });

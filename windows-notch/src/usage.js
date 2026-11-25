@@ -124,7 +124,26 @@ function antigravityGroupLabel(modelId) {
   return modelId ? String(modelId).slice(0, 18) : 'Cota';
 }
 
+// Resumo de cotas (RetrieveUserQuotaSummary): cada grupo de modelos tem um limite de 5 horas e um semanal.
+function normalizeAntigravitySummary(raw) {
+  const windows = [];
+  for (const g of raw?.response?.groups ?? []) {
+    const group = String(g.displayName ?? 'Modelos').replace(/\s+models?$/i, '').replace(/\band\b/gi, 'e');
+    const order = { '5h': 0, weekly: 1 };
+    const buckets = (g.buckets ?? []).filter(b => typeof b?.remainingFraction === 'number' && b.window in order)
+      .sort((a, b) => order[a.window] - order[b.window]);
+    for (const b of buckets) {
+      const weekly = b.window === 'weekly';
+      windows.push({ group, label: weekly ? 'Semanal' : '5 horas', minutes: weekly ? 10080 : 300,
+        remaining: clamp(b.remainingFraction * 100), reset: resetMs(b.resetTime) });
+    }
+  }
+  if (!windows.length) throw new Error('O Antigravity não informou limites de uso.');
+  return { windows };
+}
+
 function normalizeAntigravity(raw) {
+  if (Array.isArray(raw?.response?.groups)) return normalizeAntigravitySummary(raw);
   // Aceita a resposta da API (buckets) ou o GetUserStatus do servidor local (quotaInfo por modelo).
   const configs = raw?.userStatus?.cascadeModelConfigData?.clientModelConfigs;
   const buckets = Array.isArray(raw?.buckets) ? raw.buckets
@@ -147,9 +166,10 @@ function normalizeAntigravity(raw) {
     const prev = merged.get(key);
     if (prev) prev.labels.push(w.label); else merged.set(key, { ...w, labels: [w.label] });
   }
-  const windows = [...merged.values()].slice(0, 3).map(({ labels, ...w }) => ({
+  const windows = [...merged.values()].slice(0, 3).map(({ labels, label, ...w }) => ({
     ...w,
-    label: labels.length > 1 && labels.every(l => l.startsWith('Gemini')) ? 'Gemini'
+    label: '5 horas',
+    group: labels.length > 1 && labels.every(l => l.startsWith('Gemini')) ? 'Gemini'
       : labels.map(l => l.replace(/^Gemini /, '')).join(' + '),
   }));
   if (!windows.length) throw new Error('O Antigravity não informou limites de uso.');
@@ -193,16 +213,19 @@ async function antigravityLocal() {
     try { info = JSON.parse(await fs.readFile(file, 'utf8')); } catch { continue; }
     const port = Number(info.httpPort);
     if (!Number.isInteger(port) || port <= 0 || port > 65535 || typeof info.csrfToken !== 'string') continue;
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Codeium-Csrf-Token': info.csrfToken },
-        body: '{}',
-        redirect: 'manual',
-        signal: AbortSignal.timeout(5000),
-      });
-      if (res.ok) return normalizeAntigravity(await res.json());
-    } catch { /* servidor encerrado: tenta o próximo ou o login salvo */ }
+    // O resumo traz 5 horas e semanal; o GetUserStatus (versões anteriores) só a cota de 5 horas.
+    for (const method of ['RetrieveUserQuotaSummary', 'GetUserStatus']) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/exa.language_server_pb.LanguageServerService/${method}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Codeium-Csrf-Token': info.csrfToken },
+          body: '{}',
+          redirect: 'manual',
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) return normalizeAntigravity(await res.json());
+      } catch { /* método ausente, resposta sem cotas ou servidor encerrado: tenta o próximo */ }
+    }
   }
   return null;
 }
