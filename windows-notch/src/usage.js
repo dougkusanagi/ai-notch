@@ -124,7 +124,10 @@ function antigravityGroupLabel(modelId) {
 }
 
 function normalizeAntigravity(raw) {
-  const buckets = Array.isArray(raw?.buckets) ? raw.buckets : [];
+  // Aceita a resposta da API (buckets) ou o GetUserStatus do servidor local (quotaInfo por modelo).
+  const configs = raw?.userStatus?.cascadeModelConfigData?.clientModelConfigs;
+  const buckets = Array.isArray(raw?.buckets) ? raw.buckets
+    : Array.isArray(configs) ? configs.map(c => ({ modelId: c.modelId ?? c.label, ...c.quotaInfo })) : [];
   const grouped = new Map();
   for (const b of buckets) {
     if (typeof b?.remainingFraction !== 'number') continue;
@@ -159,7 +162,44 @@ function readSqliteItem(dbFile, key) {
   }
 }
 
+function antigravityDefaultDir(home = os.homedir()) {
+  return process.platform === 'win32'
+    ? path.join(home, 'AppData', 'Roaming', 'Antigravity')
+    : path.join(home, '.config', 'Antigravity');
+}
+
+// Com o app aberto, o servidor local do Antigravity informa as cotas já com o login renovado.
+async function antigravityLocal() {
+  const daemonDir = path.join(os.homedir(), '.gemini', 'antigravity', 'daemon');
+  const names = (await fs.readdir(daemonDir).catch(() => [])).filter(n => /^hub_\d+\.json$/.test(n));
+  const files = await Promise.all(names.map(async n => {
+    const file = path.join(daemonDir, n);
+    return { file, mtime: (await fs.stat(file).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+  }));
+  for (const { file } of files.sort((a, b) => b.mtime - a.mtime)) {
+    let info;
+    try { info = JSON.parse(await fs.readFile(file, 'utf8')); } catch { continue; }
+    const port = Number(info.httpPort);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535 || typeof info.csrfToken !== 'string') continue;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Codeium-Csrf-Token': info.csrfToken },
+        body: '{}',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) return normalizeAntigravity(await res.json());
+    } catch { /* servidor encerrado: tenta o próximo ou o login salvo */ }
+  }
+  return null;
+}
+
 async function antigravity(dir) {
+  if (path.resolve(dir) === antigravityDefaultDir()) {
+    const local = await antigravityLocal();
+    if (local) return local;
+  }
   const candidates = [path.join(dir, 'User', 'globalStorage', 'state.vscdb'), path.join(dir, 'state.vscdb')];
   let dbFile = null;
   for (const c of candidates) {
@@ -170,10 +210,17 @@ async function antigravity(dir) {
   try { rawToken = readSqliteItem(dbFile, 'antigravityUnifiedStateSync.oauthToken'); }
   catch { throw new Error('Não foi possível ler o login local do Antigravity.'); }
   const token = extractAntigravityToken(rawToken);
-  if (!token) throw new Error('Entre no Antigravity para ver os limites.');
-  const raw = await request('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota',
+  if (!token) throw new Error('Abra o Antigravity para ver os limites.');
+  let raw;
+  try {
+    raw = await request('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota',
     { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     { method: 'POST', body: '{}' });
+  } catch (e) {
+    // O token salvo expira em cerca de 1 hora; só o app aberto o renova.
+    if (/Login recusado/.test(e.message)) throw new Error('Abra o Antigravity para atualizar os limites.');
+    throw e;
+  }
   return normalizeAntigravity(raw);
 }
 
@@ -197,9 +244,7 @@ async function discoverProfiles(home = os.homedir(), config = {}) {
     if (process.env[cfg.env]) dirs.add(path.resolve(process.env[cfg.env]));
     if (provider !== 'antigravity') dirs.add(path.join(home, cfg.prefix));
     else {
-      const defDir = process.platform === 'win32'
-        ? path.join(home, 'AppData', 'Roaming', 'Antigravity')
-        : path.join(home, '.config', 'Antigravity');
+      const defDir = antigravityDefaultDir(home);
       if (await fs.access(path.join(defDir, cfg.file)).then(() => true, () => false)) dirs.add(defDir);
     }
     for (const e of entries) {
